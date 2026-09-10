@@ -23,12 +23,14 @@ import {
   useExecutives,
   useShops,
   useShopCollections,
+  useShopMappings,
 } from "@/lib/hooks/use-queries";
 import { getCurrentUser } from "@/lib/mock-auth";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CollectionItem, ShopCollection } from "@/types";
+import { getExecutiveCompanies } from "@/lib/executive-utils";
 
 export function ExecutiveDetailsView() {
   const router = useRouter();
@@ -39,6 +41,7 @@ export function ExecutiveDetailsView() {
   const { data: executives = [], isLoading: isLoadingExecs, refetch: refetchExecs } = useExecutives();
   const { data: allShops = [], isLoading: isLoadingShops, refetch: refetchShops } = useShops();
   const { data: allCollections = [], isLoading: isLoadingColls, refetch: refetchColls, isFetching } = useShopCollections();
+  const { data: allMappings = [] } = useShopMappings();
 
   // Determine active executive name
   const [selectedExecutiveName, setSelectedExecutiveName] = React.useState<string>(() => {
@@ -46,6 +49,7 @@ export function ExecutiveDetailsView() {
     if (currentUser?.role === "executive" && currentUser.name) return currentUser.name;
     return "Rajesh Kumar";
   });
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
 
   // Sync state if URL search param changes
   React.useEffect(() => {
@@ -78,10 +82,21 @@ export function ExecutiveDetailsView() {
   const handleSelectExecutive = (name: string) => {
     setSelectedExecutiveName(name);
     setSelectedShopFilter(null);
+    setSelectedCompanyFilter("all");
     setSearchQuery("");
     // update URL query param
     router.replace(`/executive/details?name=${encodeURIComponent(name)}`, { scroll: false });
   };
+
+  // Handled companies for this executive
+  const handledCompanies = React.useMemo(() => {
+    if (!selectedExecutiveName) return [];
+    return getExecutiveCompanies(selectedExecutiveName, {
+      shops: allShops,
+      mappings: allMappings,
+      collections: allCollections,
+    });
+  }, [selectedExecutiveName, allShops, allMappings, allCollections]);
 
   // UI state: active tab
   const [activeTab, setActiveTab] = React.useState<"collections" | "shops" | "info">("collections");
@@ -117,29 +132,41 @@ export function ExecutiveDetailsView() {
     return executiveCollections.reduce((sum, c) => sum + (c.items?.length || 0), 0);
   }, [executiveCollections]);
 
-  // Filtered collections for search & shop filter
+  // Filtered collections for search, company filter & shop filter
   const filteredCollections = React.useMemo(() => {
     return executiveCollections.filter((c) => {
       if (selectedShopFilter && c.shopName.toLowerCase() !== selectedShopFilter.toLowerCase()) {
         return false;
+      }
+      if (selectedCompanyFilter !== "all") {
+        const comp = c.companyName || c.brandName || "";
+        if (comp.toLowerCase() !== selectedCompanyFilter.toLowerCase()) return false;
       }
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
         c.shopName.toLowerCase().includes(q) ||
         c.invoiceNo.toLowerCase().includes(q) ||
+        (c.companyName && c.companyName.toLowerCase().includes(q)) ||
+        (c.brandName && c.brandName.toLowerCase().includes(q)) ||
         (c.gstinUin && c.gstinUin.toLowerCase().includes(q)) ||
         c.items?.some((item: CollectionItem) => item.productName.toLowerCase().includes(q))
       );
     });
-  }, [executiveCollections, searchQuery, selectedShopFilter]);
+  }, [executiveCollections, searchQuery, selectedShopFilter, selectedCompanyFilter]);
 
-  // Filtered shops for search
+  // Filtered shops for search & company filter
   const filteredShops = React.useMemo(() => {
-    if (!searchQuery.trim()) return executiveShops;
-    const q = searchQuery.toLowerCase();
-    return executiveShops.filter((s) => s.name.toLowerCase().includes(q));
-  }, [executiveShops, searchQuery]);
+    return executiveShops.filter((s) => {
+      if (selectedCompanyFilter !== "all") {
+        const comp = s.companyName || s.brandName || "";
+        if (comp.toLowerCase() !== selectedCompanyFilter.toLowerCase()) return false;
+      }
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return s.name.toLowerCase().includes(q) || (s.companyName && s.companyName.toLowerCase().includes(q));
+    });
+  }, [executiveShops, searchQuery, selectedCompanyFilter]);
 
   // Map each shop to its pending invoice count and total pending amount
   const shopStatsMap = React.useMemo(() => {
@@ -310,6 +337,69 @@ export function ExecutiveDetailsView() {
               {executiveCollections.length} Pending Invoices
             </span>
           </div>
+
+          {/* Handled Companies & Filter */}
+          {handledCompanies.length > 0 && (
+            <div className="pt-2 border-t border-border text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground font-mono flex items-center gap-1 text-[11px]">
+                  <Building2 className="h-3 w-3 text-primary" />
+                  <span>Companies Handled:</span>
+                  {handledCompanies.length > 1 && (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                      Multi-Company ({handledCompanies.length})
+                    </span>
+                  )}
+                </span>
+                {handledCompanies.length > 1 && selectedCompanyFilter !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCompanyFilter("all")}
+                    className="text-primary font-mono hover:underline text-[10px]"
+                  >
+                    Reset Brand Filter
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                {handledCompanies.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCompanyFilter("all")}
+                    className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border ${
+                      selectedCompanyFilter === "all"
+                        ? "bg-foreground text-background border-foreground shadow-2xs"
+                        : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                    }`}
+                  >
+                    All Brands
+                  </button>
+                )}
+                {handledCompanies.map((comp) => {
+                  const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
+                  return (
+                    <button
+                      key={comp}
+                      type="button"
+                      onClick={() => {
+                        if (handledCompanies.length > 1) {
+                          setSelectedCompanyFilter(isSelected ? "all" : comp);
+                        }
+                      }}
+                      className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
+                        isSelected
+                          ? "bg-foreground text-background border-foreground shadow-2xs"
+                          : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                      }`}
+                    >
+                      <span>{comp}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Minimal Metric Tiles - 2x2 on Mobile, 4-col on Desktop */}

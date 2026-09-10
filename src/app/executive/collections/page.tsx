@@ -14,26 +14,46 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useShopCollections } from "@/lib/hooks/use-queries";
+import { useShopCollections, useShops, useShopMappings } from "@/lib/hooks/use-queries";
 import { ShopCollection, CollectionItem } from "@/types";
 import { getCurrentUser } from "@/lib/mock-auth";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw, Building2 } from "lucide-react";
+import { getExecutiveCompanies } from "@/lib/executive-utils";
 
 export default function ExecutiveCollectionsPage() {
   const { data: allCollections = [], isLoading, isFetching, refetch } = useShopCollections();
+  const { data: allShops = [] } = useShops();
+  const { data: allMappings = [] } = useShopMappings();
+
   const [search, setSearch] = React.useState("");
   const [currentPage, setCurrentPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
+
   const currentUser = getCurrentUser();
   const currentExecName = currentUser.name || "Rajesh Kumar";
 
+  const handledCompanies = React.useMemo(() => {
+    return getExecutiveCompanies(currentExecName, {
+      shops: allShops,
+      mappings: allMappings,
+      collections: allCollections,
+    });
+  }, [currentExecName, allShops, allMappings, allCollections]);
+
   const collections = React.useMemo(() => {
-    return allCollections.filter(
-      (shop) => shop.executiveName?.toLowerCase() === currentExecName.toLowerCase()
-    );
-  }, [allCollections, currentExecName]);
+    return allCollections.filter((shop) => {
+      const matchExec = shop.executiveName?.toLowerCase() === currentExecName.toLowerCase();
+      if (!matchExec) return false;
+      if (selectedCompanyFilter !== "all") {
+        const comp = shop.companyName || shop.brandName || "";
+        return comp.toLowerCase() === selectedCompanyFilter.toLowerCase();
+      }
+      return true;
+    });
+  }, [allCollections, currentExecName, selectedCompanyFilter]);
 
   const filteredShops = React.useMemo(() => {
     if (!search.trim()) return collections;
@@ -42,6 +62,8 @@ export default function ExecutiveCollectionsPage() {
       (shop) =>
         shop.shopName.toLowerCase().includes(q) ||
         shop.invoiceNo.toLowerCase().includes(q) ||
+        (shop.companyName && shop.companyName.toLowerCase().includes(q)) ||
+        (shop.brandName && shop.brandName.toLowerCase().includes(q)) ||
         (shop.gstinUin && shop.gstinUin.toLowerCase().includes(q)) ||
         shop.items.some((item: CollectionItem) => item.productName.toLowerCase().includes(q))
     );
@@ -49,7 +71,7 @@ export default function ExecutiveCollectionsPage() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [search]);
+  }, [search, selectedCompanyFilter]);
 
   const paginatedShops = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -90,16 +112,35 @@ export default function ExecutiveCollectionsPage() {
       badge="Executive"
       description={`Shop invoices and products assigned to ${currentExecName}`}
       actions={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="h-8 text-xs font-mono gap-1"
-        >
-          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {handledCompanies.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2 py-0.5 shadow-2xs">
+              <Building2 className="h-3 w-3 text-muted-foreground" />
+              <select
+                value={selectedCompanyFilter}
+                onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                className="h-7 text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all">All Companies ({handledCompanies.length})</option>
+                {handledCompanies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="h-8 text-xs font-mono gap-1"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       }
     >
       <div className="relative">
@@ -146,6 +187,7 @@ export default function ExecutiveCollectionsPage() {
                   <TableHead className="w-8 p-2 text-center"></TableHead>
                   <TableHead className="w-10 text-center text-xs">#</TableHead>
                   <TableHead className="text-xs">Shop Name (Parent)</TableHead>
+                  <TableHead className="text-xs">Company</TableHead>
                   <TableHead className="text-xs">Invoice No</TableHead>
                   <TableHead className="text-xs">Date</TableHead>
                   <TableHead className="text-xs">GST Details</TableHead>
@@ -156,13 +198,13 @@ export default function ExecutiveCollectionsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={9} className="h-24 text-center text-xs text-muted-foreground">
                       Loading assigned collections...
                     </TableCell>
                   </TableRow>
                 ) : filteredShops.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={9} className="h-24 text-center text-xs text-muted-foreground">
                       No collections assigned to your account yet.
                     </TableCell>
                   </TableRow>
@@ -191,6 +233,15 @@ export default function ExecutiveCollectionsPage() {
                           </TableCell>
                           <TableCell className="text-xs font-bold text-foreground">
                             {shop.shopName}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {shop.companyName || shop.brandName ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-muted border border-border text-foreground">
+                                {shop.companyName || shop.brandName}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-mono text-muted-foreground italic">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">
                             {shop.invoiceNo}

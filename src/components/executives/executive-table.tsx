@@ -17,6 +17,7 @@ import { Eye, EyeOff, KeyRound, ExternalLink, Trash2, AlertTriangle } from "luci
 
 interface ExecutiveTableProps {
   executives: Executive[];
+  companiesMap?: Map<string, string[]>;
   className?: string;
   onEditCredentials?: (exec: Executive) => void;
   onDeleteExecutive?: (exec: Executive) => Promise<void> | void;
@@ -24,6 +25,7 @@ interface ExecutiveTableProps {
 
 export function ExecutiveTable({
   executives,
+  companiesMap,
   className,
   onEditCredentials,
   onDeleteExecutive,
@@ -77,6 +79,7 @@ export function ExecutiveTable({
                 <TableRow className="border-b border-border bg-muted/20">
                   <TableHead className="w-12 text-center text-xs">#</TableHead>
                   <TableHead className="text-xs">Executive Name</TableHead>
+                  <TableHead className="text-xs">Companies Handled</TableHead>
                   <TableHead className="text-xs">Login Username</TableHead>
                   <TableHead className="text-xs">Login Password</TableHead>
                   <TableHead className="w-40 text-right text-xs pr-4">Actions</TableHead>
@@ -85,7 +88,7 @@ export function ExecutiveTable({
               <TableBody>
                 {executives.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-16 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={6} className="h-16 text-center text-xs text-muted-foreground">
                       No executive members registered yet.
                     </TableCell>
                   </TableRow>
@@ -99,6 +102,8 @@ export function ExecutiveTable({
                         .split(/\s+/)[0]
                         .replace(/[^a-z0-9]/g, "");
                     const password = exec.password || "password123";
+                    const companies = companiesMap?.get(exec.name.trim().toLowerCase()) || [];
+                    const isMultiCompany = companies.length > 1;
 
                     return (
                       <TableRow key={exec.id} className="hover:bg-muted/30">
@@ -107,6 +112,29 @@ export function ExecutiveTable({
                         </TableCell>
                         <TableCell className="text-xs font-semibold text-foreground">
                           {exec.name}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {companies.length === 0 ? (
+                            <span className="text-[11px] font-mono text-muted-foreground italic">
+                              Unassigned
+                            </span>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-1.5 max-w-xs">
+                              {companies.map((comp) => (
+                                <span
+                                  key={comp}
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted border border-border text-foreground font-mono"
+                                >
+                                  {comp}
+                                </span>
+                              ))}
+                              {isMultiCompany && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  Multi-Company ({companies.length})
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs font-mono text-foreground">
                           <span className="px-2 py-0.5 rounded bg-muted border border-border text-[11px]">

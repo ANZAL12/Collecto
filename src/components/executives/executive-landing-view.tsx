@@ -10,22 +10,27 @@ import {
   Clock,
   Receipt,
   RotateCcw,
+  Building2,
+  Layers,
 } from "lucide-react";
 import {
   useExecutives,
   useShops,
   useShopCollections,
+  useShopMappings,
   useTogglePaymentStatusMutation,
 } from "@/lib/hooks/use-queries";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getCurrentSession, logout } from "@/lib/auth-service";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ShopCollection, UserSession, CollectionItem } from "@/types";
 import { LogOut } from "lucide-react";
+import { getExecutiveCompanies } from "@/lib/executive-utils";
 
 export interface ShopCardData {
   name: string;
+  companies: string[];
   invoices: ShopCollection[];
   pendingAmount: number;
   totalAmount: number;
@@ -41,6 +46,9 @@ interface ExecutiveLandingViewProps {
 
 export function ExecutiveLandingView({ session: propSession, onLogout }: ExecutiveLandingViewProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlParamName = searchParams?.get("name");
+
   const [session, setSession] = React.useState<UserSession | null>(() => propSession || getCurrentSession());
   const [isCheckingAuth, setIsCheckingAuth] = React.useState(!propSession);
 
@@ -62,18 +70,26 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   const { data: executives = [] } = useExecutives();
   const { data: allShops = [], isLoading: isLoadingShops } = useShops();
   const { data: allCollections = [], isLoading: isLoadingColls } = useShopCollections();
+  const { data: allMappings = [] } = useShopMappings();
 
   const togglePaymentMutation = useTogglePaymentStatusMutation();
 
   const isAdmin = session?.role === "admin";
-  const [adminSelectedExec, setAdminSelectedExec] = React.useState<string>("");
+  const [adminSelectedExec, setAdminSelectedExec] = React.useState<string>(() => urlParamName || "");
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
+
+  React.useEffect(() => {
+    if (urlParamName) {
+      setAdminSelectedExec(urlParamName);
+    }
+  }, [urlParamName]);
 
   // Default admin preview to first available executive
   React.useEffect(() => {
-    if (isAdmin && !adminSelectedExec && executives.length > 0) {
+    if (isAdmin && !adminSelectedExec && !urlParamName && executives.length > 0) {
       setAdminSelectedExec(executives[0].name);
     }
-  }, [isAdmin, adminSelectedExec, executives]);
+  }, [isAdmin, adminSelectedExec, urlParamName, executives]);
 
   // Active executive name (admin can switch preview, executive is locked to self)
   const activeExecutive = React.useMemo(() => {
@@ -105,6 +121,21 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     );
   }, [allShops, activeExecutive]);
 
+  // Handled companies for this executive
+  const handledCompanies = React.useMemo(() => {
+    if (!activeExecutive) return [];
+    return getExecutiveCompanies(activeExecutive, {
+      shops: allShops,
+      mappings: allMappings,
+      collections: allCollections,
+    });
+  }, [activeExecutive, allShops, allMappings, allCollections]);
+
+  // Reset company filter when switching executive
+  React.useEffect(() => {
+    setSelectedCompanyFilter("all");
+  }, [activeExecutive]);
+
   // Group collections under each shop
   const shops: ShopCardData[] = React.useMemo(() => {
     const shopMap = new Map<string, ShopCollection[]>();
@@ -125,19 +156,58 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       }
     }
 
-    // Canonical names map
+    // Canonical names map and shop companies map
     const canonicalNameMap = new Map<string, string>();
-    for (const s of executiveShops) canonicalNameMap.set(s.name.trim().toLowerCase(), s.name);
+    const shopCompaniesMap = new Map<string, Set<string>>();
+
+    for (const s of executiveShops) {
+      const key = s.name.trim().toLowerCase();
+      canonicalNameMap.set(key, s.name);
+      const comp = s.companyName?.trim() || s.brandName?.trim();
+      if (comp) {
+        if (!shopCompaniesMap.has(key)) shopCompaniesMap.set(key, new Set());
+        shopCompaniesMap.get(key)!.add(comp);
+      }
+    }
+
     for (const c of executiveCollections) {
-      if (!canonicalNameMap.has(c.shopName.trim().toLowerCase())) {
-        canonicalNameMap.set(c.shopName.trim().toLowerCase(), c.shopName);
+      const key = c.shopName.trim().toLowerCase();
+      if (!canonicalNameMap.has(key)) {
+        canonicalNameMap.set(key, c.shopName);
+      }
+      const comp = c.companyName?.trim() || c.brandName?.trim();
+      if (comp) {
+        if (!shopCompaniesMap.has(key)) shopCompaniesMap.set(key, new Set());
+        shopCompaniesMap.get(key)!.add(comp);
       }
     }
 
     const list: ShopCardData[] = [];
 
-    shopMap.forEach((invoices, key) => {
+    shopMap.forEach((rawInvoices, key) => {
       const displayName = canonicalNameMap.get(key) || key;
+      const companies = Array.from(shopCompaniesMap.get(key) || []).sort();
+
+      // If a specific company is selected, filter invoices to that company
+      const invoices =
+        selectedCompanyFilter && selectedCompanyFilter !== "all"
+          ? rawInvoices.filter((inv) => {
+              const comp = inv.companyName?.trim() || inv.brandName?.trim();
+              return comp?.toLowerCase() === selectedCompanyFilter.toLowerCase();
+            })
+          : rawInvoices;
+
+      // If filtering by company, include shop if shop is associated with company or has matching invoices
+      if (selectedCompanyFilter && selectedCompanyFilter !== "all") {
+        const matchesShopComp = companies.some(
+          (c) => c.toLowerCase() === selectedCompanyFilter.toLowerCase()
+        );
+        const hasMatchingInvoices = invoices.length > 0;
+        if (!matchesShopComp && !hasMatchingInvoices) {
+          return;
+        }
+      }
+
       const totalAmount = invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
       const unpaidInvoices = invoices.filter((inv) => !inv.isPaid);
       const pendingAmount = unpaidInvoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
@@ -147,6 +217,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
 
       list.push({
         name: displayName,
+        companies,
         invoices,
         pendingAmount,
         totalAmount,
@@ -162,7 +233,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       if (a.pendingAmount === 0 && b.pendingAmount > 0) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [executiveShops, executiveCollections]);
+  }, [executiveShops, executiveCollections, selectedCompanyFilter]);
 
   // Filtered by search
   const filteredShops = React.useMemo(() => {
@@ -170,12 +241,15 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     const q = searchQuery.toLowerCase();
     return shops.filter((s) => {
       const matchName = s.name.toLowerCase().includes(q);
+      const matchCompany = s.companies.some((c) => c.toLowerCase().includes(q));
       const matchInvoice = s.invoices.some(
         (inv: ShopCollection) =>
           inv.invoiceNo.toLowerCase().includes(q) ||
+          inv.companyName?.toLowerCase().includes(q) ||
+          inv.brandName?.toLowerCase().includes(q) ||
           inv.items?.some((it: CollectionItem) => it.productName.toLowerCase().includes(q))
       );
-      return matchName || matchInvoice;
+      return matchName || matchCompany || matchInvoice;
     });
   }, [shops, searchQuery]);
 
@@ -257,40 +331,122 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
           </div>
         )}
 
-        {/* Search Option at Top with Logout Button */}
-        <div className="flex items-center gap-2 pt-1">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-foreground">
-              <Search className="h-4 w-4" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search shops..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-11 pl-10 pr-9 text-xs sm:text-sm rounded-xl border border-border bg-card shadow-2xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            {searchQuery && (
+        {/* Executive Info & Handled Companies Bar */}
+        {activeExecutive && (
+          <div className="rounded-xl border border-border bg-card p-3 shadow-2xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
+                  {activeExecutive.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                    <span className="truncate">{activeExecutive}</span>
+                    {handledCompanies.length > 1 && (
+                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                        Multi-Company ({handledCompanies.length})
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    Field Executive • {shops.length} {shops.length === 1 ? "Shop" : "Shops"}
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
+                onClick={handleLogoutClick}
+                className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-border bg-card shadow-2xs text-muted-foreground hover:text-foreground transition-colors"
+                title="Sign Out"
+                aria-label="Sign Out"
               >
-                <X className="h-4 w-4" />
+                <LogOut className="h-3.5 w-3.5" />
               </button>
+            </div>
+
+            {/* Handled Companies & Filter Chips */}
+            {handledCompanies.length > 0 && (
+              <div className="pt-2 border-t border-border/60 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-mono flex items-center gap-1 text-[11px]">
+                    <Building2 className="h-3 w-3 text-primary" />
+                    <span>Companies Handled:</span>
+                  </span>
+                  {handledCompanies.length > 1 && selectedCompanyFilter !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCompanyFilter("all")}
+                      className="text-primary font-mono hover:underline text-[10px]"
+                    >
+                      Show All
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                  {handledCompanies.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCompanyFilter("all")}
+                      className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border ${
+                        selectedCompanyFilter === "all"
+                          ? "bg-foreground text-background border-foreground shadow-2xs"
+                          : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                      }`}
+                    >
+                      All ({shops.length})
+                    </button>
+                  )}
+                  {handledCompanies.map((comp) => {
+                    const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
+                    return (
+                      <button
+                        key={comp}
+                        type="button"
+                        onClick={() => {
+                          if (handledCompanies.length > 1) {
+                            setSelectedCompanyFilter(isSelected ? "all" : comp);
+                          }
+                        }}
+                        className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
+                          isSelected
+                            ? "bg-foreground text-background border-foreground shadow-2xs"
+                            : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                        }`}
+                      >
+                        <span>{comp}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
+        )}
 
-          <button
-            type="button"
-            onClick={handleLogoutClick}
-            className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-border bg-card shadow-2xs text-muted-foreground hover:text-foreground transition-colors"
-            title="Sign Out"
-            aria-label="Sign Out"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+        {/* Search Option */}
+        <div className="relative pt-0.5">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-foreground">
+            <Search className="h-4 w-4" />
+          </div>
+          <input
+            type="text"
+            placeholder="Search shops, companies, bills..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full h-11 pl-10 pr-9 text-xs sm:text-sm rounded-xl border border-border bg-card shadow-2xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* SHOPS AS CARDS */}
@@ -303,18 +459,23 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
             <p className="text-xs text-muted-foreground">
               {searchQuery
                 ? `No shops found matching "${searchQuery}"`
+                : selectedCompanyFilter !== "all"
+                ? `No shops found for company "${selectedCompanyFilter}".`
                 : activeExecutive
                 ? `No shops assigned to ${activeExecutive} yet. Contact admin to assign shops.`
                 : "No shops assigned to your account."}
             </p>
-            {searchQuery && (
+            {(searchQuery || selectedCompanyFilter !== "all") && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setSearchQuery("")}
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedCompanyFilter("all");
+                }}
                 className="h-7 text-xs font-mono"
               >
-                Clear Search
+                Reset Filters
               </Button>
             )}
           </div>
@@ -335,9 +496,28 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                     className="w-full text-left p-3.5 flex items-center justify-between gap-3 cursor-pointer focus:outline-none"
                   >
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-sm font-semibold text-foreground leading-snug truncate">
-                        {shop.name}
-                      </h2>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h2 className="text-sm font-semibold text-foreground leading-snug truncate">
+                          {shop.name}
+                        </h2>
+                        {shop.companies && shop.companies.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {shop.companies.map((comp) => (
+                              <span
+                                key={comp}
+                                className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-muted border border-border text-foreground"
+                              >
+                                {comp}
+                              </span>
+                            ))}
+                            {shop.companies.length > 1 && (
+                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                Multi-Brand
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-muted-foreground">
                         {shop.invoices.length === 0 ? (
                           <span>No bills</span>
@@ -400,9 +580,14 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div>
-                                  <div className="flex items-center gap-1.5 font-mono font-semibold text-foreground">
+                                  <div className="flex items-center gap-1.5 font-mono font-semibold text-foreground flex-wrap">
                                     <Receipt className="h-3 w-3 text-muted-foreground" />
                                     <span>#{inv.invoiceNo}</span>
+                                    {(inv.companyName || inv.brandName) && (
+                                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-semibold uppercase tracking-wider bg-muted border border-border text-foreground">
+                                        {inv.companyName || inv.brandName}
+                                      </span>
+                                    )}
                                   </div>
                                   {inv.invoiceDate && (
                                     <div className="text-[10px] font-mono text-muted-foreground mt-0.5">

@@ -11,15 +11,16 @@ import {
   useUpdateShopExecutiveMutation,
   useAddShopMutation,
 } from "@/lib/hooks/use-queries";
-import { Store, Plus } from "lucide-react";
+import { Store, Plus, FileSpreadsheet } from "lucide-react";
 
 interface MappingFormProps {
   initialShopId?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
+  onOpenExcelImport?: () => void;
 }
 
-export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormProps) {
+export function MappingForm({ initialShopId, onSuccess, onCancel, onOpenExcelImport }: MappingFormProps) {
   const { data: shops = [] } = useShops();
   const { data: executives = [] } = useExecutives();
   const updateExecutiveMutation = useUpdateShopExecutiveMutation();
@@ -114,21 +115,21 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
       </CardHeader>
 
       {/* Segmented Mode Selector */}
-      <div className="grid grid-cols-2 p-1 gap-1 bg-muted/25 border-b border-border text-xs">
+      <div className={`grid ${onOpenExcelImport ? "grid-cols-3" : "grid-cols-2"} p-1 gap-1 bg-muted/25 border-b border-border text-xs`}>
         <button
           type="button"
           onClick={() => {
             setIsManualMode(false);
             setErrorMessage("");
           }}
-          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded font-medium transition-all ${
+          className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 rounded font-medium text-[11px] transition-all ${
             !isManualMode
-              ? "bg-background text-foreground shadow-xs"
+              ? "bg-background text-foreground shadow-xs font-semibold"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          <Store className="h-3.5 w-3.5" />
-          Select Existing Shop
+          <Store className="h-3 w-3" />
+          Existing Shop
         </button>
         <button
           type="button"
@@ -136,15 +137,26 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
             setIsManualMode(true);
             setErrorMessage("");
           }}
-          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded font-medium transition-all ${
+          className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 rounded font-medium text-[11px] transition-all ${
             isManualMode
-              ? "bg-background text-foreground shadow-xs"
+              ? "bg-background text-foreground shadow-xs font-semibold"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          <Plus className="h-3.5 w-3.5" />
-          Add Shop Manually
+          <Plus className="h-3 w-3" />
+          Manual Add
         </button>
+        {onOpenExcelImport && (
+          <button
+            type="button"
+            onClick={onOpenExcelImport}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-1.5 rounded font-medium text-[11px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+            title="Import list of shops from Excel spreadsheet"
+          >
+            <FileSpreadsheet className="h-3 w-3" />
+            From Excel
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit}>

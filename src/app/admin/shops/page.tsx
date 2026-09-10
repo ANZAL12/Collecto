@@ -12,7 +12,8 @@ import {
   useUpdateShopExecutiveMutation,
   useDeleteShopMutation,
 } from "@/lib/hooks/use-queries";
-import { Plus, Check, RefreshCw } from "lucide-react";
+import { Plus, Check, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { ExcelShopImportDialog } from "@/components/mappings/excel-shop-import-dialog";
 
 export default function AdminShopsPage() {
   const { data: shops = [], isLoading, isFetching, refetch } = useShops();
@@ -22,6 +23,7 @@ export default function AdminShopsPage() {
   const deleteShopMutation = useDeleteShopMutation();
 
   const [showAddForm, setShowAddForm] = React.useState(false);
+  const [showExcelImport, setShowExcelImport] = React.useState(false);
   const [deletingShopId, setDeletingShopId] = React.useState<string | null>(null);
   const [notification, setNotification] = React.useState<string | null>(null);
 
@@ -106,6 +108,15 @@ export default function AdminShopsPage() {
           </Button>
           <Button
             size="sm"
+            onClick={() => setShowExcelImport(true)}
+            className="h-8 text-xs font-semibold gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-600 dark:hover:bg-emerald-500"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Import from Excel
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setShowAddForm(!showAddForm)}
             className="h-8 text-xs font-medium gap-1"
           >
@@ -160,6 +171,15 @@ export default function AdminShopsPage() {
         onUpdateExecutive={handleUpdateExecutive}
         onDeleteShop={handleDeleteShop}
         deletingShopId={deletingShopId}
+      />
+
+      <ExcelShopImportDialog
+        isOpen={showExcelImport}
+        onClose={() => setShowExcelImport(false)}
+        onSuccess={(count, exec) => {
+          showNotice(`Successfully imported and mapped ${count} ${count === 1 ? "shop" : "shops"} to ${exec}!`);
+          refetch();
+        }}
       />
     </ErpContainer>
   );

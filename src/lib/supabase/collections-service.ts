@@ -774,6 +774,12 @@ export async function deleteShop(
   if (!supabase) return { success: false, error: "Supabase client unavailable" };
 
   try {
+    // Optional: unset executive_name from shop_collections for this shop
+    const { data: shopRecord } = await supabase.from("shops").select("name").eq("id", shopId).maybeSingle();
+    if (shopRecord?.name) {
+      await supabase.from("shop_collections").update({ executive_name: null }).eq("shop_name", shopRecord.name);
+    }
+
     // 1. Delete associated shop mappings
     await supabase.from("shop_mappings").delete().eq("shop_id", shopId);
 
@@ -788,6 +794,35 @@ export async function deleteShop(
   } catch (err: any) {
     console.error("Delete shop exception:", err);
     return { success: false, error: err.message || "Failed to delete shop" };
+  }
+}
+
+/**
+ * Delete all retail shops and their executive mappings
+ */
+export async function deleteAllShops(): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Database not configured" };
+  const supabase = createClient();
+  if (!supabase) return { success: false, error: "Supabase client unavailable" };
+
+  try {
+    // 1. Delete all shop mappings
+    await supabase.from("shop_mappings").delete().not("id", "is", null);
+
+    // 2. Unassign collections
+    await supabase.from("shop_collections").update({ executive_name: null }).not("id", "is", null);
+
+    // 3. Delete all shops
+    const { error } = await supabase.from("shops").delete().not("id", "is", null);
+    if (error) {
+      console.error("Error deleting all shops:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Delete all shops exception:", err);
+    return { success: false, error: err.message || "Failed to delete all shops" };
   }
 }
 

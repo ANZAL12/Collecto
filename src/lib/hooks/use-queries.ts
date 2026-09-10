@@ -13,6 +13,7 @@ import {
   bulkAddShopsWithExecutive,
   updateShopExecutive,
   deleteShop,
+  deleteAllShops,
   deleteUploadBatch,
   updateUploadBatchFileName,
   saveParsedCollectionsToDb,
@@ -205,6 +206,21 @@ export function useDeleteShopMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: ["executive_collections"] });
+    },
+  });
+}
+
+export function useDeleteAllShopsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => deleteAllShops(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: ["executive_collections"] });
     },
   });
 }

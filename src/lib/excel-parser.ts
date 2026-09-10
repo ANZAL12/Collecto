@@ -427,3 +427,251 @@ export async function simulateParseExcelFile(
     };
   }
 }
+
+export interface ExtractedExcelShopsResult {
+  fileName: string;
+  sheetNames: string[];
+  targetCol: number;
+  columns: { index: number; name: string; sample: string[] }[];
+  shops: string[];
+  rawRows: any[][];
+  detectedExecutive?: string;
+}
+
+export function extractShopsFromRawRows(
+  rows: any[][],
+  colIdx: number = -1,
+  executives?: { name: string }[]
+): {
+  targetCol: number;
+  columns: { index: number; name: string; sample: string[] }[];
+  shops: string[];
+  detectedExecutive?: string;
+} {
+  if (!rows || rows.length === 0) return { targetCol: 0, columns: [], shops: [] };
+
+  let headerRowIndex = -1;
+  let particularsColIndex = -1;
+  const colScores: Record<number, number> = {};
+
+  // 1. Scan up to first 60 rows to locate the "Particulars" column and header row
+  for (let r = 0; r < Math.min(rows.length, 60); r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+
+    for (let c = 0; c < row.length; c++) {
+      const raw = String(row[c] || "").trim();
+      if (!raw) continue;
+      const clean = raw.toLowerCase().replace(/[:]/g, "").trim();
+
+      // Highest priority: "Particulars" / "Particular"
+      if (clean === "particulars" || clean === "particular" || clean.startsWith("particular")) {
+        particularsColIndex = c;
+        headerRowIndex = r;
+        colScores[c] = (colScores[c] || 0) + 1000;
+        break;
+      } else if (
+        clean === "shop name" ||
+        clean === "shop" ||
+        clean === "store name" ||
+        clean === "store"
+      ) {
+        colScores[c] = (colScores[c] || 0) + 200;
+        if (headerRowIndex === -1) headerRowIndex = r;
+      } else if (
+        clean === "party name" ||
+        clean === "customer" ||
+        clean === "party" ||
+        clean === "customer name" ||
+        clean === "party's name"
+      ) {
+        colScores[c] = (colScores[c] || 0) + 150;
+        if (headerRowIndex === -1) headerRowIndex = r;
+      } else if (
+        clean === "name" ||
+        clean === "account" ||
+        clean === "account name" ||
+        clean === "ledger"
+      ) {
+        colScores[c] = (colScores[c] || 0) + 50;
+        if (headerRowIndex === -1) headerRowIndex = r;
+      }
+    }
+
+    if (particularsColIndex !== -1) {
+      break; // Found exact "Particulars" header row
+    }
+  }
+
+  // Calculate maximum column count across the header and data preview
+  const maxCols = Math.max(
+    ...rows.slice(0, Math.min(rows.length, 60)).map((r) => (Array.isArray(r) ? r.length : 0)),
+    1
+  );
+
+  const headerRow = headerRowIndex !== -1 && Array.isArray(rows[headerRowIndex]) ? rows[headerRowIndex] : [];
+
+  const columns: { index: number; name: string; sample: string[] }[] = [];
+  for (let c = 0; c < maxCols; c++) {
+    let colName = String(headerRow[c] || "").trim();
+    if (!colName && headerRowIndex > 0 && Array.isArray(rows[headerRowIndex - 1])) {
+      colName = String(rows[headerRowIndex - 1][c] || "").trim();
+    }
+    if (!colName) {
+      colName = `Column ${String.fromCharCode(65 + c)}`;
+    }
+
+    const sample = rows
+      .slice(headerRowIndex + 1, headerRowIndex + 5)
+      .map((r) => String(r[c] || "").trim())
+      .filter(Boolean);
+    columns.push({ index: c, name: colName, sample });
+  }
+
+  let targetCol = colIdx;
+  if (targetCol === -1 || targetCol >= maxCols) {
+    if (particularsColIndex !== -1) {
+      targetCol = particularsColIndex;
+    } else {
+      let bestScore = -1;
+      for (const [c, score] of Object.entries(colScores)) {
+        if (score > bestScore) {
+          bestScore = score;
+          targetCol = Number(c);
+        }
+      }
+      if (targetCol === -1) targetCol = 0;
+    }
+  }
+
+  // 2. Detect executive name from metadata rows above the "Particulars" header
+  let detectedExecutive: string | undefined;
+  if (executives && executives.length > 0 && headerRowIndex > 0) {
+    for (let r = 0; r < headerRowIndex; r++) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      for (let c = 0; c < row.length; c++) {
+        const text = String(row[c] || "").trim().toLowerCase();
+        if (!text) continue;
+        const matched = executives.find((e) => {
+          const eName = e.name.trim().toLowerCase();
+          return text === eName || text.includes(eName) || eName.includes(text);
+        });
+        if (matched) {
+          detectedExecutive = matched.name;
+          break;
+        }
+      }
+      if (detectedExecutive) break;
+    }
+  }
+
+  const invalidKeywords = [
+    "total",
+    "grand total",
+    "sub total",
+    "subtotal",
+    "opening",
+    "closing",
+    "opening balance",
+    "closing balance",
+    "cancel",
+    "cancelled",
+    "void",
+    "delete",
+    "sales account",
+    "purchase account",
+    "date",
+    "particulars",
+    "particular",
+    "debit",
+    "credit",
+    "pending bills",
+    "group outstandings",
+    "outstandings",
+    "gstin",
+    "vch",
+    "voucher",
+    "party name",
+    "shop name",
+    "customer name",
+    "on account",
+    "dr",
+    "cr",
+    "balance",
+    "net balance",
+    "due date",
+    "overdue",
+    "na",
+    "n/a",
+    "nil",
+    "none",
+  ];
+
+  const shops: string[] = [];
+  const seen = new Set<string>();
+  const startRow = headerRowIndex !== -1 ? headerRowIndex + 1 : 0;
+
+  for (let r = startRow; r < rows.length; r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    const rawCell = String(row[targetCol] || "").trim();
+    const cell = rawCell.replace(/\s+/g, " ");
+    if (!cell || cell.length < 2) continue;
+    const lower = cell.toLowerCase();
+
+    // Skip summary / header / metadata keywords
+    if (
+      invalidKeywords.some(
+        (inv) =>
+          lower === inv ||
+          lower.startsWith(inv + " ") ||
+          lower.startsWith(inv + ":") ||
+          lower.endsWith(" " + inv)
+      )
+    ) {
+      continue;
+    }
+
+    if (lower.startsWith("total")) continue;
+
+    // Skip numeric values or currency amounts
+    if (!isNaN(Number(cell.replace(/,/g, "")))) continue;
+
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      shops.push(cell);
+    }
+  }
+
+  return { targetCol, columns, shops, detectedExecutive };
+}
+
+export async function extractShopNamesFromExcel(
+  file: File,
+  targetColumnIndex?: number,
+  executives?: { name: string }[]
+): Promise<ExtractedExcelShopsResult> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: false,
+  });
+
+  const parsed = extractShopsFromRawRows(rawRows, targetColumnIndex ?? -1, executives);
+
+  return {
+    fileName: file.name,
+    sheetNames: workbook.SheetNames,
+    targetCol: parsed.targetCol,
+    columns: parsed.columns,
+    shops: parsed.shops,
+    rawRows,
+    detectedExecutive: parsed.detectedExecutive,
+  };
+}

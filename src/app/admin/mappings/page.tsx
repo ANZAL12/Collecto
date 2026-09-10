@@ -21,10 +21,12 @@ export default function AdminMappingsPage() {
   const [showMappingForm, setShowMappingForm] = React.useState(false);
   const [showExcelImport, setShowExcelImport] = React.useState(false);
   const [activeAssignShopId, setActiveAssignShopId] = React.useState<string | undefined>(undefined);
+  const [activeAssignCompanyId, setActiveAssignCompanyId] = React.useState<string | undefined>(undefined);
   const [notice, setNotice] = React.useState<string | null>(null);
 
-  const handleOpenAssign = (shopId: string) => {
+  const handleOpenAssign = (shopId: string, companyId?: string) => {
     setActiveAssignShopId(shopId);
+    setActiveAssignCompanyId(companyId);
     setShowMappingForm(true);
   };
 
@@ -123,6 +125,7 @@ export default function AdminMappingsPage() {
         <div className="flex justify-center mb-4">
           <MappingForm
             initialShopId={activeAssignShopId}
+            initialCompanyId={activeAssignCompanyId}
             onCancel={() => setShowMappingForm(false)}
             onSuccess={handleSuccess}
             onOpenExcelImport={() => {
@@ -143,8 +146,12 @@ export default function AdminMappingsPage() {
       <ExcelShopImportDialog
         isOpen={showExcelImport}
         onClose={() => setShowExcelImport(false)}
-        onSuccess={async (count, exec) => {
-          setNotice(`Successfully imported and mapped ${count} ${count === 1 ? "shop" : "shops"} to ${exec}!`);
+        onSuccess={async (count, exec, comp) => {
+          setNotice(
+            `Successfully imported and mapped ${count} ${count === 1 ? "shop" : "shops"} to ${exec}${
+              comp ? ` under ${comp}` : ""
+            }!`
+          );
           await refetch();
           setTimeout(() => setNotice(null), 8000);
         }}

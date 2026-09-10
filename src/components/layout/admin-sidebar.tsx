@@ -11,6 +11,7 @@ import {
   GitFork,
   TableProperties,
   Settings,
+  Building2,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,11 @@ export const adminNavItems: NavItem[] = [
     title: "Shop Mappings",
     href: "/admin/mappings",
     icon: GitFork,
+  },
+  {
+    title: "Companies",
+    href: "/admin/companies",
+    icon: Building2,
   },
   {
     title: "Executives",

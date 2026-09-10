@@ -36,6 +36,10 @@ export interface Shop {
   id: string;
   name: string;
   assignedExecutiveName?: string;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
 }
 
 /**
@@ -47,7 +51,21 @@ export interface ShopMapping {
   shopName: string;
   executiveId?: string;
   executiveName?: string;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
   status: "mapped" | "unmapped";
+}
+
+/**
+ * Company / Brand (e.g. Haier, General, Godrej, Global Agencies)
+ */
+export interface Company {
+  id: string;
+  name: string;
+  code?: string;
+  created_at?: string;
 }
 
 /**
@@ -55,9 +73,14 @@ export interface ShopMapping {
  */
 export interface CollectionItem {
   id?: string;
+  shopCollectionId?: string;
   productName: string;
   quantity: string | number;
   amount: number;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
 }
 
 /**
@@ -72,8 +95,14 @@ export interface ShopCollection {
   totalAmount: number;
   totalQuantity?: string | number;
   executiveName?: string;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
   status: "mapped" | "unmapped";
   isExistingShop?: boolean;
+  isNotUnique?: boolean;
+  uniquenessMessage?: string;
   uploadBatch?: string;
   isPaid?: boolean;
   items: CollectionItem[];
@@ -94,6 +123,10 @@ export interface OutstandingDetail {
   quantity: string | number;
   value: number;
   executiveName?: string;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
   uploadBatch?: string;
   createdAt?: string;
 }
@@ -104,6 +137,10 @@ export interface OutstandingDetail {
 export interface UploadBatch {
   id: string;
   fileName: string;
+  companyId?: string;
+  companyName?: string;
+  brandId?: string;
+  brandName?: string;
   totalRows: number;
   uploadedAt: string;
   uploadDate?: string;
@@ -126,6 +163,8 @@ export interface ParsedExcelRow {
   quantity: string | number;
   value: number;
   executiveName?: string;
+  companyId?: string;
+  companyName?: string;
   status: "mapped" | "unmapped";
 }
 

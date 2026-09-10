@@ -77,6 +77,7 @@ export function UploadHistoryTable({
             <TableHeader>
               <TableRow className="border-b border-border">
                 <TableHead className="text-xs">File Name</TableHead>
+                <TableHead className="text-xs">Company / Brand</TableHead>
                 <TableHead className="text-xs">Upload Date</TableHead>
                 <TableHead className="text-xs text-center">Total Rows</TableHead>
                 <TableHead className="text-xs text-right">Status</TableHead>
@@ -89,7 +90,7 @@ export function UploadHistoryTable({
               {history.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={onDelete || onUpdateFileName ? 5 : 4}
+                    colSpan={onDelete || onUpdateFileName ? 6 : 5}
                     className="h-20 text-center text-xs text-muted-foreground"
                   >
                     No upload batches recorded yet.
@@ -140,6 +141,15 @@ export function UploadHistoryTable({
                         <span className="font-medium text-foreground">{item.fileName}</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-xs">
+                      {item.companyName ? (
+                        <Badge variant="outline" className="text-[10px] font-mono bg-primary/5 text-primary border-primary/20">
+                          {item.companyName}
+                        </Badge>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {item.uploadedAt}
                     </TableCell>
@@ -168,15 +178,18 @@ export function UploadHistoryTable({
                           {onDelete && (
                             <button
                               type="button"
-                              onClick={() => onDelete(item.id, item.fileName)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(item.id, item.fileName);
+                              }}
                               disabled={deletingBatchId === item.id}
-                              className="p-1 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded cursor-pointer transition-colors disabled:opacity-50"
                               title="Delete this upload batch"
                             >
                               {deletingBatchId === item.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
+                                <Loader2 className="h-4 w-4 animate-spin text-destructive" />
                               ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Trash2 className="h-4 w-4" />
                               )}
                             </button>
                           )}

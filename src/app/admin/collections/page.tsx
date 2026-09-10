@@ -14,8 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useShopCollections, useExecutives } from "@/lib/hooks/use-queries";
-import { ShopCollection, CollectionItem, Executive } from "@/types";
+import { useShopCollections, useExecutives, useCompanies } from "@/lib/hooks/use-queries";
+import { ShopCollection, CollectionItem, Executive, Company } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw } from "lucide-react";
@@ -32,17 +32,23 @@ export default function AdminCollectionsPage() {
     isFetching: isFetchingExecs,
     refetch: refetchExecs,
   } = useExecutives();
+  const {
+    data: companies = [],
+    isFetching: isFetchingComps,
+    refetch: refetchComps,
+  } = useCompanies();
 
-  const isFetching = isFetchingColls || isFetchingExecs;
+  const isFetching = isFetchingColls || isFetchingExecs || isFetchingComps;
   const [search, setSearch] = React.useState("");
   const [selectedExec, setSelectedExec] = React.useState("ALL");
+  const [selectedCompany, setSelectedCompany] = React.useState("ALL");
 
   // Pagination state
   const [currentPage, setCurrentPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
 
   const handleRefresh = async () => {
-    await Promise.all([refetchColls(), refetchExecs()]);
+    await Promise.all([refetchColls(), refetchExecs(), refetchComps()]);
   };
 
   const filteredShops = React.useMemo(() => {
@@ -51,20 +57,25 @@ export default function AdminCollectionsPage() {
       const matchesSearch =
         shop.shopName.toLowerCase().includes(q) ||
         shop.invoiceNo.toLowerCase().includes(q) ||
+        (shop.companyName && shop.companyName.toLowerCase().includes(q)) ||
         (shop.gstinUin && shop.gstinUin.toLowerCase().includes(q)) ||
         shop.items.some((item: CollectionItem) => item.productName.toLowerCase().includes(q));
 
       const matchesExec =
         selectedExec === "ALL" || shop.executiveName === selectedExec;
 
-      return matchesSearch && matchesExec;
+      const matchesCompany =
+        selectedCompany === "ALL" ||
+        shop.companyName?.toLowerCase() === selectedCompany.toLowerCase();
+
+      return matchesSearch && matchesExec && matchesCompany;
     });
-  }, [collections, search, selectedExec]);
+  }, [collections, search, selectedExec, selectedCompany]);
 
   // Reset to page 1 whenever filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedExec]);
+  }, [search, selectedExec, selectedCompany]);
 
   const paginatedShops = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -132,10 +143,25 @@ export default function AdminCollectionsPage() {
           />
         </div>
 
+        {/* Company / Brand Filter */}
+        <select
+          value={selectedCompany}
+          onChange={(e) => setSelectedCompany(e.target.value)}
+          className="h-8 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 w-full sm:w-auto font-medium"
+        >
+          <option value="ALL">All Brands ({collections.length})</option>
+          {companies.map((comp) => (
+            <option key={comp.id} value={comp.name}>
+              {comp.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Executive Filter */}
         <select
           value={selectedExec}
           onChange={(e) => setSelectedExec(e.target.value)}
-          className="h-8 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 w-full sm:w-auto"
+          className="h-8 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 w-full sm:w-auto font-medium"
         >
           <option value="ALL">All Executives</option>
           {executives.map((exec) => (
@@ -179,6 +205,7 @@ export default function AdminCollectionsPage() {
                   <TableHead className="w-10 text-center text-xs">#</TableHead>
                   <TableHead className="text-xs">Shop Name (Parent)</TableHead>
                   <TableHead className="text-xs">Invoice No</TableHead>
+                  <TableHead className="text-xs">Brand</TableHead>
                   <TableHead className="text-xs">Date</TableHead>
                   <TableHead className="text-xs">GST Details</TableHead>
                   <TableHead className="text-xs text-center">Items</TableHead>
@@ -190,13 +217,13 @@ export default function AdminCollectionsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={11} className="h-24 text-center text-xs text-muted-foreground">
                       Loading collections from database...
                     </TableCell>
                   </TableRow>
                 ) : filteredShops.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={11} className="h-24 text-center text-xs text-muted-foreground">
                       No collections found. Upload an Excel spreadsheet in Upload Center to process collections.
                     </TableCell>
                   </TableRow>
@@ -228,6 +255,15 @@ export default function AdminCollectionsPage() {
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">
                             {shop.invoiceNo}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {shop.companyName ? (
+                              <Badge variant="outline" className="text-[10px] font-mono bg-primary/5 text-primary border-primary/20">
+                                {shop.companyName}
+                              </Badge>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-xs font-mono text-muted-foreground">
                             {shop.invoiceDate}

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Menu, LogOut, Smartphone } from "lucide-react";
+import { Menu, LogOut, Smartphone, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentSession, logout } from "@/lib/auth-service";
@@ -65,6 +66,17 @@ export function TopNavbar({ onOpenMobileMenu, role }: TopNavbarProps) {
           )}
 
           <ThemeToggle className="h-7 w-7" />
+
+          {role === "admin" && (
+            <Link
+              href="/admin/companies"
+              className="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1 bg-card hover:bg-muted transition-colors"
+              title="Manage Companies / Brands"
+            >
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              <span className="hidden sm:inline">Companies</span>
+            </Link>
+          )}
 
           <a
             href="/"

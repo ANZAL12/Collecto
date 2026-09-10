@@ -13,6 +13,7 @@ import {
   IndianRupee,
   Settings,
   ShieldCheck,
+  Building2,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,12 @@ export const navigationItems: NavItem[] = [
     icon: History,
     badge: "3",
     description: "Audit Trail & Logs",
+  },
+  {
+    title: "Companies",
+    href: "/admin/companies",
+    icon: Building2,
+    description: "Brands & Manufacturers",
   },
   {
     title: "Executives",

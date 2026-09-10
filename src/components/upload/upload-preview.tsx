@@ -16,7 +16,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { ChevronDown, ChevronRight, ChevronsUpDown, Package } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronsUpDown, Package, AlertTriangle, Info } from "lucide-react";
 
 interface UploadPreviewProps {
   collections?: ShopCollection[];
@@ -96,6 +96,10 @@ export function UploadPreview({
     return collections.reduce((sum, c) => sum + (c.items?.length || 0), 0);
   }, [collections]);
 
+  const notUniqueCount = React.useMemo(() => {
+    return collections.filter((c) => c.isNotUnique).length;
+  }, [collections]);
+
   return (
     <Card className={className}>
       <CardHeader className="py-2.5 px-4 border-b border-border flex flex-row items-center justify-between">
@@ -119,6 +123,15 @@ export function UploadPreview({
           {areAllExpanded ? "Collapse All" : "Expand All"}
         </Button>
       </CardHeader>
+
+      {notUniqueCount > 0 && (
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            <strong>Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} not unique (multi-brand or mapped under multiple companies). Checked against selected company first.
+          </span>
+        </div>
+      )}
 
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -168,8 +181,14 @@ export function UploadPreview({
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {(currentPage - 1) * pageSize + index + 1}
                         </TableCell>
-                        <TableCell className="text-xs font-bold text-foreground">
-                          {shop.shopName}
+                        <TableCell className="text-xs">
+                          <div className="font-bold text-foreground">{shop.shopName}</div>
+                          {shop.uniquenessMessage && (
+                            <div className="mt-1 flex items-center gap-1 text-[10px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 max-w-fit">
+                              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                              <span>{shop.uniquenessMessage}</span>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {shop.invoiceNo}

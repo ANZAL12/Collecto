@@ -11,6 +11,7 @@ interface UploadStatusProps {
   warningRows: number;
   errorRows: number;
   totalAmount?: number;
+  companyName?: string;
   onFileNameChange?: (newName: string) => void;
   className?: string;
 }
@@ -22,6 +23,7 @@ export function UploadStatus({
   warningRows,
   errorRows,
   totalAmount = 72500,
+  companyName,
   onFileNameChange,
   className,
 }: UploadStatusProps) {
@@ -94,6 +96,11 @@ export function UploadStatus({
                   </button>
                 )}
               </div>
+            )}
+            {companyName && (
+              <span className="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-semibold text-[10px] font-mono">
+                {companyName}
+              </span>
             )}
             <span className="text-muted-foreground ml-1">
               ({totalRows} rows • {formatCurrency(totalAmount)})

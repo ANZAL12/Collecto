@@ -13,12 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { Search, Trash2, AlertTriangle, Loader2, RotateCcw } from "lucide-react";
-import { useExecutives } from "@/lib/hooks/use-queries";
+import { Search, Trash2, AlertTriangle, Loader2, RotateCcw, Building2 } from "lucide-react";
+import { useExecutives, useCompanies } from "@/lib/hooks/use-queries";
 
 interface UnmappedShopsTableProps {
   mappings: ShopMapping[];
-  onAssign?: (shopId: string) => void;
+  onAssign?: (shopId: string, companyId?: string) => void;
   onDeleteShop?: (shopId: string, shopName: string) => Promise<void> | void;
   onDeleteAll?: () => Promise<void> | void;
   className?: string;
@@ -32,7 +32,9 @@ export function UnmappedShopsTable({
   className,
 }: UnmappedShopsTableProps) {
   const { data: dbExecutives = [] } = useExecutives();
+  const { data: companies = [] } = useCompanies();
   const [search, setSearch] = React.useState("");
+  const [companyFilter, setCompanyFilter] = React.useState<string>("ALL");
   const [executiveFilter, setExecutiveFilter] = React.useState<string>("ALL");
   const [statusFilter, setStatusFilter] = React.useState<"ALL" | "unmapped" | "mapped">("ALL");
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -50,6 +52,37 @@ export function UnmappedShopsTable({
     () => mappings.filter((m) => m.status === "unmapped").length,
     [mappings]
   );
+
+  // Count mappings per company
+  const companyCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const m of mappings) {
+      if (m.companyName) {
+        const key = m.companyName.trim().toLowerCase();
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [mappings]);
+
+  const noCompanyCount = React.useMemo(() => {
+    return mappings.filter((m) => !m.companyName).length;
+  }, [mappings]);
+
+  // Count distinct companies per shop name to flag non-unique / multi-brand shops
+  const shopBrandCounts = React.useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+    for (const m of mappings) {
+      const k = m.shopName.trim().toLowerCase();
+      if (!map[k]) map[k] = new Set();
+      map[k].add(m.companyName || "General");
+    }
+    const counts: Record<string, number> = {};
+    for (const [k, set] of Object.entries(map)) {
+      counts[k] = set.size;
+    }
+    return counts;
+  }, [mappings]);
 
   // Collect unique executive options from both database executives and current mappings
   const executiveOptions = React.useMemo(() => {
@@ -80,7 +113,8 @@ export function UnmappedShopsTable({
       const q = search.toLowerCase();
       const matchesSearch =
         item.shopName.toLowerCase().includes(q) ||
-        (item.executiveName && item.executiveName.toLowerCase().includes(q));
+        (item.executiveName && item.executiveName.toLowerCase().includes(q)) ||
+        (item.companyName && item.companyName.toLowerCase().includes(q));
 
       const matchesStatus =
         statusFilter === "ALL" || item.status === statusFilter;
@@ -91,13 +125,19 @@ export function UnmappedShopsTable({
           ? !item.executiveName
           : item.executiveName?.toLowerCase() === executiveFilter.toLowerCase());
 
-      return matchesSearch && matchesStatus && matchesExecutive;
+      const matchesCompany =
+        companyFilter === "ALL" ||
+        (companyFilter === "UNASSIGNED"
+          ? !item.companyName
+          : item.companyName?.toLowerCase() === companyFilter.toLowerCase());
+
+      return matchesSearch && matchesStatus && matchesExecutive && matchesCompany;
     });
-  }, [mappings, search, statusFilter, executiveFilter]);
+  }, [mappings, search, statusFilter, executiveFilter, companyFilter]);
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, executiveFilter]);
+  }, [search, statusFilter, executiveFilter, companyFilter]);
 
   const paginatedMappings = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -144,6 +184,24 @@ export function UnmappedShopsTable({
             />
           </div>
 
+          {/* Company / Brand Filter Dropdown */}
+          <select
+            value={companyFilter}
+            onChange={(e) => setCompanyFilter(e.target.value)}
+            className="h-8 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 shrink-0 font-medium"
+            title="Filter by Company / Brand"
+          >
+            <option value="ALL">All Companies ({mappings.length})</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.name}>
+                {c.name} {c.code ? `(${c.code})` : ""} ({companyCounts[c.name.toLowerCase()] || 0})
+              </option>
+            ))}
+            {noCompanyCount > 0 && (
+              <option value="UNASSIGNED">No Brand Tagged ({noCompanyCount})</option>
+            )}
+          </select>
+
           {/* Executive Filter */}
           <select
             value={executiveFilter}
@@ -172,13 +230,14 @@ export function UnmappedShopsTable({
           </select>
 
           {/* Reset Filters */}
-          {(search || executiveFilter !== "ALL" || statusFilter !== "ALL") && (
+          {(search || companyFilter !== "ALL" || executiveFilter !== "ALL" || statusFilter !== "ALL") && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
                 setSearch("");
+                setCompanyFilter("ALL");
                 setExecutiveFilter("ALL");
                 setStatusFilter("ALL");
               }}
@@ -219,6 +278,7 @@ export function UnmappedShopsTable({
                 <TableRow className="border-b border-border">
                   <TableHead className="w-12 text-center text-xs">#</TableHead>
                   <TableHead className="text-xs">Shop Name</TableHead>
+                  <TableHead className="text-xs">Company / Brand</TableHead>
                   <TableHead className="text-xs">Assigned Executive</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="w-32 text-right text-xs pr-4">Actions</TableHead>
@@ -227,7 +287,7 @@ export function UnmappedShopsTable({
               <TableBody>
                 {mappings.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-16 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={6} className="h-16 text-center text-xs text-muted-foreground">
                       No shop mappings registered yet.
                     </TableCell>
                   </TableRow>
@@ -238,7 +298,29 @@ export function UnmappedShopsTable({
                         {(currentPage - 1) * pageSize + idx + 1}
                       </TableCell>
                       <TableCell className="text-xs font-medium text-foreground">
-                        {item.shopName}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{item.shopName}</span>
+                          {(shopBrandCounts[item.shopName.trim().toLowerCase()] || 0) > 1 && (
+                            <span
+                              className="text-[9px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1 py-0.2 rounded shrink-0 font-normal"
+                              title={`This shop is mapped under ${shopBrandCounts[item.shopName.trim().toLowerCase()]} different brands`}
+                            >
+                              Multi-Brand ({shopBrandCounts[item.shopName.trim().toLowerCase()]})
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {item.companyName ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-mono bg-primary/5 text-primary border-primary/20 px-1.5 py-0.5"
+                          >
+                            {item.companyName}
+                          </Badge>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground italic">General</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.executiveName ? (
@@ -258,7 +340,7 @@ export function UnmappedShopsTable({
                             variant="outline"
                             size="sm"
                             className="h-6 text-[11px] px-2 font-mono"
-                            onClick={() => onAssign && onAssign(item.shopId)}
+                            onClick={() => onAssign && onAssign(item.shopId, item.companyId)}
                           >
                             {item.status === "unmapped" ? "Assign" : "Reassign"}
                           </Button>

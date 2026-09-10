@@ -539,6 +539,11 @@ export function ExecutiveDetailsView() {
                             </h2>
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono text-muted-foreground mt-0.5">
                               <span>#{col.invoiceNo}</span>
+                              {col.companyName && (
+                                <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary border border-primary/20 font-semibold text-[10px]">
+                                  {col.companyName}
+                                </span>
+                              )}
                               {col.invoiceDate && <span>• {col.invoiceDate}</span>}
                               {col.gstinUin && <span>• {col.gstinUin}</span>}
                             </div>

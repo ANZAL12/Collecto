@@ -106,12 +106,17 @@ export function groupRowsByShop(rows: ParsedExcelRow[]): ShopCollection[] {
  */
 export function matchExistingShop(
   cellText: string,
-  existingShops: Shop[] = []
+  existingShops: Shop[] = [],
+  companyId?: string,
+  companyName?: string
 ): {
   matched: boolean;
   canonicalShopName: string;
   assignedExecutive?: string;
   shopId?: string;
+  matchedCompany?: string;
+  isNotUnique?: boolean;
+  uniquenessMessage?: string;
 } {
   const clean = cellText.trim().toLowerCase();
   if (!clean) return { matched: false, canonicalShopName: cellText };
@@ -124,34 +129,151 @@ export function matchExistingShop(
       .trim();
 
   const normCell = normalize(clean);
+  const normTargetCompany = companyName?.trim().toLowerCase();
 
-  // 1. Exact match (case-insensitive & trimmed)
-  const exact = existingShops.find(
+  // Helper to test if a candidate shop belongs to the target company / brand
+  const matchesCompany = (s: Shop) => {
+    if (!companyId && !companyName) return true;
+    if (companyId && (s.companyId === companyId || s.brandId === companyId)) return true;
+    if (normTargetCompany) {
+      const sComp = s.companyName?.trim().toLowerCase();
+      const sBrand = s.brandName?.trim().toLowerCase();
+      if (sComp === normTargetCompany || sBrand === normTargetCompany) return true;
+    }
+    return false;
+  };
+
+  // Find all shops matching this name across all companies
+  const exactMatches = existingShops.filter(
     (s) => s.name.trim().toLowerCase() === clean || normalize(s.name) === normCell
   );
-  if (exact) {
-    return {
-      matched: true,
-      canonicalShopName: exact.name,
-      assignedExecutive: exact.assignedExecutiveName,
-      shopId: exact.id,
-    };
-  }
-
-  // 2. Contains match (e.g. "MEPARAMBATH TRADERS" inside "MEPARAMBATH TRADERS - CALICUT")
-  const contains = existingShops.find((s) => {
+  const containsMatches = existingShops.filter((s) => {
     const sNorm = normalize(s.name);
     return (
       (sNorm.length > 3 && normCell.includes(sNorm)) ||
       (normCell.length > 3 && sNorm.includes(normCell))
     );
   });
-  if (contains) {
+  const allMatches = exactMatches.length > 0 ? exactMatches : containsMatches;
+
+  const otherCompanies = Array.from(
+    new Set(
+      allMatches
+        .map((s) => s.companyName || s.brandName)
+        .filter((c): c is string => Boolean(c) && typeof c === "string" && c.toLowerCase() !== normTargetCompany)
+    )
+  );
+
+  const isMultiBrand = otherCompanies.length > 0;
+
+  // 1. HIGHEST PRIORITY: Exact match on shop name FOR THAT PARTICULAR COMPANY
+  if (companyId || companyName) {
+    const exactCompany = existingShops.find(
+      (s) =>
+        (s.name.trim().toLowerCase() === clean || normalize(s.name) === normCell) &&
+        matchesCompany(s)
+    );
+    if (exactCompany) {
+      return {
+        matched: true,
+        canonicalShopName: exactCompany.name,
+        assignedExecutive: exactCompany.assignedExecutiveName,
+        shopId: exactCompany.id,
+        matchedCompany: exactCompany.companyName || exactCompany.brandName,
+        isNotUnique: isMultiBrand,
+        uniquenessMessage: isMultiBrand
+          ? `Multi-brand: Mapped for ${companyName} (also in ${otherCompanies.join(", ")})`
+          : undefined,
+      };
+    }
+
+    // 2. SECOND PRIORITY: Contains match on shop name FOR THAT PARTICULAR COMPANY
+    const containsCompany = existingShops.find((s) => {
+      if (!matchesCompany(s)) return false;
+      const sNorm = normalize(s.name);
+      return (
+        (sNorm.length > 3 && normCell.includes(sNorm)) ||
+        (normCell.length > 3 && sNorm.includes(normCell))
+      );
+    });
+    if (containsCompany) {
+      return {
+        matched: true,
+        canonicalShopName: containsCompany.name,
+        assignedExecutive: containsCompany.assignedExecutiveName,
+        shopId: containsCompany.id,
+        matchedCompany: containsCompany.companyName || containsCompany.brandName,
+        isNotUnique: isMultiBrand,
+        uniquenessMessage: isMultiBrand
+          ? `Multi-brand: Mapped for ${companyName} (also in ${otherCompanies.join(", ")})`
+          : undefined,
+      };
+    }
+  }
+
+  // 3. FALLBACK: Exact match with no company assigned / general mapping
+  const genericExact = existingShops.find(
+    (s) =>
+      (s.name.trim().toLowerCase() === clean || normalize(s.name) === normCell) &&
+      !s.companyId &&
+      !s.companyName
+  );
+  if (genericExact) {
+    const notUnique = allMatches.length > 1 || isMultiBrand;
     return {
       matched: true,
-      canonicalShopName: contains.name,
-      assignedExecutive: contains.assignedExecutiveName,
-      shopId: contains.id,
+      canonicalShopName: genericExact.name,
+      assignedExecutive: genericExact.assignedExecutiveName,
+      shopId: genericExact.id,
+      matchedCompany: genericExact.companyName || genericExact.brandName,
+      isNotUnique: notUnique,
+      uniquenessMessage: companyName
+        ? `Not unique: No mapping for ${companyName} (Using General mapping)`
+        : undefined,
+    };
+  }
+
+  // 4. FALLBACK: Any exact match across all shops
+  const anyExact = existingShops.find(
+    (s) => s.name.trim().toLowerCase() === clean || normalize(s.name) === normCell
+  );
+  if (anyExact) {
+    const comp = anyExact.companyName || anyExact.brandName || "Other brand";
+    return {
+      matched: true,
+      canonicalShopName: anyExact.name,
+      assignedExecutive: anyExact.assignedExecutiveName,
+      shopId: anyExact.id,
+      matchedCompany: comp,
+      isNotUnique: true,
+      uniquenessMessage:
+        companyName && comp.toLowerCase() !== normTargetCompany
+          ? `Not unique: Mapped under ${comp} (Not uniquely mapped for ${companyName})`
+          : undefined,
+    };
+  }
+
+  // 5. FALLBACK: Any contains match across all shops
+  const anyContains = existingShops.find((s) => {
+    const sNorm = normalize(s.name);
+    return (
+      (sNorm.length > 3 && normCell.includes(sNorm)) ||
+      (normCell.length > 3 && sNorm.includes(normCell))
+    );
+  });
+  if (anyContains) {
+    const comp = anyContains.companyName || anyContains.brandName || "Other brand";
+    return {
+      matched: true,
+      canonicalShopName: anyContains.name,
+      assignedExecutive: anyContains.assignedExecutiveName,
+      shopId: anyContains.id,
+      matchedCompany: comp,
+      isNotUnique: true,
+      uniquenessMessage:
+        companyName && comp.toLowerCase() !== normTargetCompany
+          ? `Not unique: Mapped under ${comp} (Not uniquely mapped for ${companyName})`
+          : undefined,
     };
   }
 
@@ -199,7 +321,9 @@ export function isExcludedParticulars(text: string): boolean {
  */
 export async function simulateParseExcelFile(
   file: File,
-  existingShops: Shop[] = []
+  existingShops: Shop[] = [],
+  companyId?: string,
+  companyName?: string
 ): Promise<ExcelValidationResult> {
   try {
     const buffer = await file.arrayBuffer();
@@ -331,8 +455,8 @@ export async function simulateParseExcelFile(
         }
       }
 
-      // Check if matched in registered shops master
-      const shopMatch = matchExistingShop(particularsCell, existingShops);
+      // Check if matched in registered shops master (prioritizing the target company)
+      const shopMatch = matchExistingShop(particularsCell, existingShops, companyId, companyName);
 
       // Detect a Shop (Parent) row:
       // A. Explicit registered shop match (different from current shop)
@@ -365,8 +489,14 @@ export async function simulateParseExcelFile(
           totalAmount: valueNum,
           totalQuantity: quantityCell,
           executiveName: assignedExec,
+          companyId: companyId,
+          companyName: companyName,
+          brandId: companyId,
+          brandName: companyName,
           status: assignedExec ? "mapped" : "unmapped",
           isExistingShop: isExisting,
+          isNotUnique: shopMatch?.isNotUnique,
+          uniquenessMessage: shopMatch?.uniquenessMessage,
           items: [],
         };
         collections.push(currentShop);
@@ -377,6 +507,10 @@ export async function simulateParseExcelFile(
           productName: particularsCell.trim(),
           quantity: quantityCell || "1 Nos",
           amount: valueNum,
+          companyId: companyId,
+          companyName: companyName,
+          brandId: companyId,
+          brandName: companyName,
         });
       }
     }

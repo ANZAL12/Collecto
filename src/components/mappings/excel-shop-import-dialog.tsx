@@ -9,13 +9,15 @@ import {
   X,
   Store,
   User,
+  Building2,
+  AlertTriangle,
   Loader2,
   ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { useExecutives, useBulkAddShopsMutation } from "@/lib/hooks/use-queries";
+import { useExecutives, useCompanies, useShops, useBulkAddShopsMutation } from "@/lib/hooks/use-queries";
 import {
   extractShopNamesFromExcel,
   extractShopsFromRawRows,
@@ -25,8 +27,9 @@ import {
 interface ExcelShopImportDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (count: number, executiveName: string) => void;
+  onSuccess?: (count: number, executiveName: string, companyName?: string) => void;
   defaultExecutiveName?: string;
+  defaultCompanyId?: string;
 }
 
 export function ExcelShopImportDialog({
@@ -34,11 +37,15 @@ export function ExcelShopImportDialog({
   onClose,
   onSuccess,
   defaultExecutiveName,
+  defaultCompanyId,
 }: ExcelShopImportDialogProps) {
   const { data: executives = [] } = useExecutives();
+  const { data: companies = [] } = useCompanies();
+  const { data: registeredShops = [] } = useShops();
   const bulkAddMutation = useBulkAddShopsMutation();
 
   const [selectedExecutive, setSelectedExecutive] = React.useState<string>(defaultExecutiveName || "");
+  const [selectedCompanyId, setSelectedCompanyId] = React.useState<string>(defaultCompanyId || "");
   const [file, setFile] = React.useState<File | null>(null);
   const [parseResult, setParseResult] = React.useState<ExtractedExcelShopsResult | null>(null);
   const [isParsing, setIsParsing] = React.useState(false);
@@ -48,6 +55,26 @@ export function ExcelShopImportDialog({
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const chosenCompany = companies.find((c) => c.id === selectedCompanyId);
+
+  const existingInSelectedCompanyCount = React.useMemo(() => {
+    if (!shopsList.length) return 0;
+    return shopsList.filter((name) => {
+      const clean = name.trim().toLowerCase();
+      return registeredShops.some((s) => {
+        if (s.name.trim().toLowerCase() !== clean) return false;
+        if (!selectedCompanyId) return !s.companyId && !s.companyName;
+        return (
+          s.companyId === selectedCompanyId ||
+          s.brandId === selectedCompanyId ||
+          (chosenCompany &&
+            (s.companyName?.toLowerCase() === chosenCompany.name.toLowerCase() ||
+              s.brandName?.toLowerCase() === chosenCompany.name.toLowerCase()))
+        );
+      });
+    }).length;
+  }, [shopsList, registeredShops, selectedCompanyId, chosenCompany]);
 
   // Set default executive
   React.useEffect(() => {
@@ -139,14 +166,17 @@ export function ExcelShopImportDialog({
     setErrorMessage(null);
 
     try {
+      const chosenCompany = companies.find((c) => c.id === selectedCompanyId);
       const res = await bulkAddMutation.mutateAsync({
         names: shopsList,
         executiveName: selectedExecutive,
+        companyId: selectedCompanyId || undefined,
+        companyName: chosenCompany?.name || undefined,
       });
 
       if (res.success) {
         if (onSuccess) {
-          onSuccess(res.count, selectedExecutive);
+          onSuccess(res.count, selectedExecutive, chosenCompany?.name);
         }
         onClose();
       } else {
@@ -173,7 +203,7 @@ export function ExcelShopImportDialog({
             <div>
               <CardTitle className="text-sm font-semibold">Import Shops from Excel</CardTitle>
               <p className="text-[11px] text-muted-foreground">
-                Upload a spreadsheet to bulk-add shops and assign them to an executive.
+                Upload a spreadsheet to bulk-add shops and assign them to an executive and company.
               </p>
             </div>
           </div>
@@ -197,47 +227,76 @@ export function ExcelShopImportDialog({
             </div>
           )}
 
-          {/* 1. Executive Selection */}
-          <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="import-exec" className="text-xs font-semibold flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5 text-primary" />
-                <span>Assign All Imported Shops To Executive</span>
-                <span className="text-destructive">*</span>
-              </Label>
-              <span className="text-[10px] font-mono uppercase text-muted-foreground">
-                Target Executive
-              </span>
+          {/* 1. Target Executive & Company Selection */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Executive Selection */}
+            <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="import-exec" className="text-xs font-semibold flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-primary" />
+                  <span>Executive</span>
+                  <span className="text-destructive">*</span>
+                </Label>
+              </div>
+
+              <select
+                id="import-exec"
+                value={selectedExecutive}
+                onChange={(e) => setSelectedExecutive(e.target.value)}
+                disabled={isImporting}
+                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                required
+              >
+                {executives.length === 0 ? (
+                  <option value="">No executives registered</option>
+                ) : (
+                  executives.map((exec) => (
+                    <option key={exec.id} value={exec.name}>
+                      {exec.name}
+                    </option>
+                  ))
+                )}
+              </select>
+              {parseResult?.detectedExecutive ? (
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1 mt-1">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  <span>Detected "{parseResult.detectedExecutive}"</span>
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Maps shops to this executive.
+                </p>
+              )}
             </div>
 
-            <select
-              id="import-exec"
-              value={selectedExecutive}
-              onChange={(e) => setSelectedExecutive(e.target.value)}
-              disabled={isImporting}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              required
-            >
-              {executives.length === 0 ? (
-                <option value="">No executives registered</option>
-              ) : (
-                executives.map((exec) => (
-                  <option key={exec.id} value={exec.name}>
-                    {exec.name}
+            {/* Company / Brand Selection */}
+            <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="import-company" className="text-xs font-semibold flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-primary" />
+                  <span>Company / Brand</span>
+                </Label>
+                <span className="text-[10px] font-mono text-muted-foreground">Optional</span>
+              </div>
+
+              <select
+                id="import-company"
+                value={selectedCompanyId}
+                onChange={(e) => setSelectedCompanyId(e.target.value)}
+                disabled={isImporting}
+                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">No Company / General</option>
+                {companies.map((comp) => (
+                  <option key={comp.id} value={comp.id}>
+                    {comp.name} {comp.code ? `(${comp.code})` : ""}
                   </option>
-                ))
-              )}
-            </select>
-            {parseResult?.detectedExecutive ? (
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1 mt-1">
-                <CheckCircle2 className="h-3 w-3 shrink-0" />
-                <span>Auto-detected executive "{parseResult.detectedExecutive}" from sheet header</span>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Link imported shops to brand.
               </p>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                Every shop extracted from this file will be registered and mapped to this executive.
-              </p>
-            )}
+            </div>
           </div>
 
           {/* 2. File Upload Area */}
@@ -356,25 +415,58 @@ export function ExcelShopImportDialog({
                       </span>
                     </div>
 
+                    {existingInSelectedCompanyCount > 0 && (
+                      <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 p-2 text-xs text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Notice (Not Unique):</strong> {existingInSelectedCompanyCount} of{" "}
+                          {shopsList.length} shops already exist under{" "}
+                          {chosenCompany ? `"${chosenCompany.name}"` : "General"}. Importing will reassign their executive.
+                        </span>
+                      </div>
+                    )}
+
                     <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-muted/20 p-2 divide-y divide-border/40 text-xs">
                       {shopsList.length === 0 ? (
                         <p className="py-4 text-center text-xs text-muted-foreground italic">
                           No shops detected in this column. Please choose another column.
                         </p>
                       ) : (
-                        shopsList.map((shop, idx) => (
-                          <div key={idx} className="py-1.5 px-1 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="text-[10px] font-mono text-muted-foreground w-6 text-right shrink-0">
-                                {idx + 1}.
+                        shopsList.map((shop, idx) => {
+                          const isAlreadyMapped = registeredShops.some(
+                            (s) =>
+                              s.name.trim().toLowerCase() === shop.trim().toLowerCase() &&
+                              (selectedCompanyId
+                                ? s.companyId === selectedCompanyId ||
+                                  s.brandId === selectedCompanyId ||
+                                  (chosenCompany &&
+                                    (s.companyName?.toLowerCase() === chosenCompany.name.toLowerCase() ||
+                                      s.brandName?.toLowerCase() === chosenCompany.name.toLowerCase()))
+                                : !s.companyId && !s.companyName)
+                          );
+
+                          return (
+                            <div key={idx} className="py-1.5 px-1 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-[10px] font-mono text-muted-foreground w-6 text-right shrink-0">
+                                  {idx + 1}.
+                                </span>
+                                <span className="font-medium text-foreground truncate">{shop}</span>
+                                {isAlreadyMapped && (
+                                  <span className="text-[9px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1 py-0.2 rounded shrink-0">
+                                    Already Mapped
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] font-mono shrink-0 px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">
+                                &rarr; {selectedExecutive}
+                                {companies.find((c) => c.id === selectedCompanyId)
+                                  ? ` • ${companies.find((c) => c.id === selectedCompanyId)?.name}`
+                                  : ""}
                               </span>
-                              <span className="font-medium text-foreground truncate">{shop}</span>
                             </div>
-                            <span className="text-[10px] font-mono shrink-0 px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">
-                              &rarr; {selectedExecutive}
-                            </span>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>

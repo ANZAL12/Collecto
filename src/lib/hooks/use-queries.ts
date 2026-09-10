@@ -8,6 +8,9 @@ import {
   getShopCollections,
   getExecutiveCollections,
   getUploadBatches,
+  getCompanies,
+  addCompany,
+  deleteCompany,
   addExecutive,
   addShopWithExecutive,
   bulkAddShopsWithExecutive,
@@ -26,6 +29,7 @@ import { ShopCollection } from "@/types";
 export const QUERY_KEYS = {
   executives: ["executives"] as const,
   shops: ["shops"] as const,
+  companies: ["companies"] as const,
   shopMappings: ["shop_mappings"] as const,
   shopCollections: ["shop_collections"] as const,
   uploadBatches: ["upload_batches"] as const,
@@ -35,6 +39,14 @@ export const QUERY_KEYS = {
 // ----------------------------------------------------------------------
 // Queries (With 5-min staleTime and memory caching)
 // ----------------------------------------------------------------------
+
+export function useCompanies() {
+  return useQuery({
+    queryKey: QUERY_KEYS.companies,
+    queryFn: getCompanies,
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export function useExecutives() {
   return useQuery({
@@ -131,8 +143,17 @@ export function useDeleteExecutiveMutation() {
 export function useAddShopMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, executiveName }: { name: string; executiveName?: string }) =>
-      addShopWithExecutive(name, executiveName),
+    mutationFn: ({
+      name,
+      executiveName,
+      companyId,
+      companyName,
+    }: {
+      name: string;
+      executiveName?: string;
+      companyId?: string;
+      companyName?: string;
+    }) => addShopWithExecutive(name, executiveName, companyId, companyName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
@@ -144,8 +165,17 @@ export function useAddShopMutation() {
 export function useBulkAddShopsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ names, executiveName }: { names: string[]; executiveName?: string }) =>
-      bulkAddShopsWithExecutive(names, executiveName),
+    mutationFn: ({
+      names,
+      executiveName,
+      companyId,
+      companyName,
+    }: {
+      names: string[];
+      executiveName?: string;
+      companyId?: string;
+      companyName?: string;
+    }) => bulkAddShopsWithExecutive(names, executiveName, companyId, companyName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
@@ -161,11 +191,15 @@ export function useUpdateShopExecutiveMutation() {
       shopId,
       shopName,
       executiveName,
+      companyId,
+      companyName,
     }: {
       shopId: string;
       shopName: string;
       executiveName: string;
-    }) => updateShopExecutive(shopId, shopName, executiveName),
+      companyId?: string;
+      companyName?: string;
+    }) => updateShopExecutive(shopId, shopName, executiveName, companyId, companyName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
@@ -181,6 +215,32 @@ export function useDeleteUploadBatchMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.uploadBatches });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+    },
+  });
+}
+
+export function useAddCompanyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, code }: { name: string; code?: string }) => addCompany(name, code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companies });
+    },
+  });
+}
+
+export function useDeleteCompanyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteCompany(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companies });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.uploadBatches });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
     },
   });
 }
@@ -188,8 +248,17 @@ export function useDeleteUploadBatchMutation() {
 export function useSaveCollectionsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ fileName, collections }: { fileName: string; collections: ShopCollection[] }) =>
-      saveParsedCollectionsToDb(fileName, collections),
+    mutationFn: ({
+      fileName,
+      collections,
+      companyId,
+      companyName,
+    }: {
+      fileName: string;
+      collections: ShopCollection[];
+      companyId?: string;
+      companyName?: string;
+    }) => saveParsedCollectionsToDb(fileName, collections, companyId, companyName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.uploadBatches });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });

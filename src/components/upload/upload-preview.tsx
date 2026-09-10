@@ -32,10 +32,17 @@ export function UploadPreview({
   className,
 }: UploadPreviewProps) {
   const collections: ShopCollection[] = React.useMemo(() => {
-    if (directCollections && directCollections.length > 0) return directCollections;
-    if (groupedShops && groupedShops.length > 0) return groupedShops;
-    if (rows && rows.length > 0) return groupRowsByShop(rows);
-    return [];
+    let list: ShopCollection[] = [];
+    if (directCollections && directCollections.length > 0) list = directCollections;
+    else if (groupedShops && groupedShops.length > 0) list = groupedShops;
+    else if (rows && rows.length > 0) list = groupRowsByShop(rows);
+    return list.filter(
+      (c) =>
+        c.shopName &&
+        !c.shopName.toLowerCase().includes("cancel") &&
+        !c.shopName.toLowerCase().includes("void") &&
+        !c.shopName.toLowerCase().includes("delete")
+    );
   }, [directCollections, groupedShops, rows]);
 
   // Pagination state

@@ -2,39 +2,53 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Lock, User, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { setCurrentUser, MOCK_ADMIN_USER, MOCK_EXECUTIVE_USER } from "@/lib/mock-auth";
-import { UserRole } from "@/types";
+import { authenticate } from "@/lib/auth-service";
+import { useExecutives } from "@/lib/hooks/use-queries";
+import { UserSession } from "@/types";
 
-export default function LoginPage() {
+interface LoginPageProps {
+  onLoginSuccess?: (session: UserSession) => void;
+}
+
+export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
   const router = useRouter();
-  const [role, setRole] = React.useState<UserRole>("admin");
-  const [username, setUsername] = React.useState("admin@collecto.app");
-  const [password, setPassword] = React.useState("••••••••");
+  const { data: executives = [] } = useExecutives();
 
-  const handleRoleSelect = (newRole: UserRole) => {
-    setRole(newRole);
-    if (newRole === "admin") {
-      setUsername("admin@collecto.app");
-    } else {
-      setUsername("rajesh.k@collecto.app");
-    }
-  };
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
 
-    if (role === "admin") {
-      setCurrentUser(MOCK_ADMIN_USER);
-      router.push("/admin/dashboard");
-    } else {
-      setCurrentUser(MOCK_EXECUTIVE_USER);
-      router.push("/executive/dashboard");
+    try {
+      const result = await authenticate(username, password);
+
+      if (result.success && result.session) {
+        if (onLoginSuccess) {
+          onLoginSuccess(result.session);
+        }
+        if (result.session.role === "admin") {
+          router.push("/admin/dashboard");
+        } else {
+          router.push("/");
+        }
+      } else {
+        setError(result.error || "Invalid username or password");
+      }
+    } catch {
+      setError("An unexpected error occurred during sign in.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -46,81 +60,85 @@ export default function LoginPage() {
 
       <div className="w-full max-w-sm space-y-4">
         {/* Brand Header */}
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+        <div className="text-center space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Collecto
           </h1>
           <p className="text-xs text-muted-foreground">
-            Collection management system
+            Sign in to access collections & field operations
           </p>
         </div>
 
         {/* Login Card */}
-        <Card className="border-border">
-          <CardHeader className="pb-3 pt-4 px-4">
+        <Card className="border-border bg-card shadow-sm">
+          <CardHeader className="pb-2 pt-4 px-4 border-b border-border">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Sign In
+              Account Login
             </CardTitle>
-
-            {/* Minimal Role Tabs */}
-            <div className="grid grid-cols-2 gap-1 rounded border border-border bg-muted/40 p-1 mt-2">
-              <button
-                type="button"
-                onClick={() => handleRoleSelect("admin")}
-                className={`rounded py-1 text-xs font-medium transition-all ${
-                  role === "admin"
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRoleSelect("executive")}
-                className={`rounded py-1 text-xs font-medium transition-all ${
-                  role === "executive"
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Executive
-              </button>
-            </div>
           </CardHeader>
 
           <form onSubmit={handleLogin}>
-            <CardContent className="space-y-3 px-4 pb-4">
+            <CardContent className="space-y-3.5 px-4 pt-4 pb-3">
+              {error && (
+                <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <div className="space-y-1">
-                <Label htmlFor="username">Username / Email</Label>
+                <Label htmlFor="username" className="text-xs flex items-center gap-1.5">
+                  <User className="h-3 w-3 text-muted-foreground" />
+                  <span>Username</span>
+                </Label>
                 <Input
                   id="username"
                   type="text"
                   required
+                  placeholder="e.g. rajesh or admin"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="text-xs h-8"
+                  onChange={(e) => {
+                    setError(null);
+                    setUsername(e.target.value);
+                  }}
+                  className="text-xs h-9 font-mono"
                 />
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-xs flex items-center gap-1.5">
+                  <Lock className="h-3 w-3 text-muted-foreground" />
+                  <span>Password</span>
+                </Label>
                 <Input
                   id="password"
                   type="password"
                   required
+                  placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="text-xs h-8"
+                  onChange={(e) => {
+                    setError(null);
+                    setPassword(e.target.value);
+                  }}
+                  className="text-xs h-9 font-mono"
                 />
               </div>
             </CardContent>
 
-            <CardFooter className="pt-0 pb-4 px-4">
-              <Button type="submit" className="w-full h-8 text-xs font-medium gap-1.5">
-                <span>Sign In as {role === "admin" ? "Admin" : "Executive"}</span>
-                <ArrowRight className="h-3 w-3" />
+            <CardFooter className="pt-1 pb-4 px-4 flex flex-col gap-3">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full h-9 text-xs font-medium gap-1.5"
+              >
+                <span>{isSubmitting ? "Signing in..." : "Sign In"}</span>
+                <ArrowRight className="h-3.5 w-3.5" />
               </Button>
+
+              <div className="text-[11px] font-mono text-muted-foreground text-center space-y-0.5 pt-1 border-t border-border/50 w-full">
+                <div>Admin: <strong>admin</strong> / <strong>123</strong></div>
+                <div>Executive default: <strong>username</strong> / <strong>password123</strong></div>
+              </div>
             </CardFooter>
           </form>
         </Card>

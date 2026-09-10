@@ -9,6 +9,11 @@ import { NavItem } from "@/types";
 
 export const executiveNavItems: NavItem[] = [
   {
+    title: "Executive Details",
+    href: "/executive/details",
+    icon: User,
+  },
+  {
     title: "Overview",
     href: "/executive/dashboard",
     icon: LayoutDashboard,
@@ -22,11 +27,6 @@ export const executiveNavItems: NavItem[] = [
     title: "Collections",
     href: "/executive/collections",
     icon: Receipt,
-  },
-  {
-    title: "Profile",
-    href: "/executive/profile",
-    icon: User,
   },
 ];
 

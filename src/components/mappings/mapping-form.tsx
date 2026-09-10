@@ -2,9 +2,16 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { useShops, useExecutives, useUpdateShopExecutiveMutation } from "@/lib/hooks/use-queries";
+import {
+  useShops,
+  useExecutives,
+  useUpdateShopExecutiveMutation,
+  useAddShopMutation,
+} from "@/lib/hooks/use-queries";
+import { Store, Plus } from "lucide-react";
 
 interface MappingFormProps {
   initialShopId?: string;
@@ -16,13 +23,19 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
   const { data: shops = [] } = useShops();
   const { data: executives = [] } = useExecutives();
   const updateExecutiveMutation = useUpdateShopExecutiveMutation();
+  const addShopMutation = useAddShopMutation();
 
+  // Mode: "select" (from existing shops) or "manual" (type new shop name)
+  const [isManualMode, setIsManualMode] = React.useState(false);
+  const [manualShopName, setManualShopName] = React.useState("");
   const [selectedShopId, setSelectedShopId] = React.useState(initialShopId || "");
   const [selectedExecutiveName, setSelectedExecutiveName] = React.useState("");
   const [saved, setSaved] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState("");
 
   React.useEffect(() => {
     if (initialShopId) {
+      setIsManualMode(false);
       setSelectedShopId(initialShopId);
       const match = shops.find((item) => item.id === initialShopId);
       if (match?.assignedExecutiveName) {
@@ -36,67 +49,180 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
     }
   }, [initialShopId, shops, selectedShopId]);
 
+  const isPending = updateExecutiveMutation.isPending || addShopMutation.isPending;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShopId) return;
+    setErrorMessage("");
 
-    const shop = shops.find((s) => s.id === selectedShopId);
-    if (shop) {
-      await updateExecutiveMutation.mutateAsync({
-        shopId: shop.id,
-        shopName: shop.name,
-        executiveName: selectedExecutiveName,
-      });
+    if (isManualMode) {
+      const cleanName = manualShopName.trim();
+      if (!cleanName) {
+        setErrorMessage("Please enter a shop name.");
+        return;
+      }
+
+      try {
+        const res = await addShopMutation.mutateAsync({
+          name: cleanName,
+          executiveName: selectedExecutiveName || undefined,
+        });
+
+        if (!res.success) {
+          setErrorMessage(res.error || "Failed to create shop");
+          return;
+        }
+
+        setSaved(true);
+        setTimeout(() => {
+          setSaved(false);
+          setManualShopName("");
+          if (onSuccess) onSuccess();
+        }, 400);
+      } catch (err: any) {
+        setErrorMessage(err.message || "Failed to create shop");
+      }
+    } else {
+      if (!selectedShopId) {
+        setErrorMessage("Please select a shop.");
+        return;
+      }
+
+      const shop = shops.find((s) => s.id === selectedShopId);
+      if (shop) {
+        await updateExecutiveMutation.mutateAsync({
+          shopId: shop.id,
+          shopName: shop.name,
+          executiveName: selectedExecutiveName,
+        });
+      }
+
+      setSaved(true);
+      setTimeout(() => {
+        setSaved(false);
+        if (onSuccess) onSuccess();
+      }, 400);
     }
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      if (onSuccess) onSuccess();
-    }, 400);
   };
 
   return (
-    <Card className="w-full max-w-md border-border bg-card">
-      <CardHeader className="py-3 px-4 border-b border-border">
-        <CardTitle className="text-xs font-semibold uppercase tracking-wider">
-          Assign Shop to Executive
+    <Card className="w-full max-w-md border-border bg-card shadow-sm">
+      <CardHeader className="py-2.5 px-4 border-b border-border">
+        <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {isManualMode ? "Add New Shop & Assign Executive" : "Assign Shop to Executive"}
         </CardTitle>
       </CardHeader>
 
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-3 p-4">
-          <div className="space-y-1">
-            <Label htmlFor="shop-select">Shop Name</Label>
-            <select
-              id="shop-select"
-              value={selectedShopId}
-              onChange={(e) => {
-                const sId = e.target.value;
-                setSelectedShopId(sId);
-                const s = shops.find((item) => item.id === sId);
-                if (s?.assignedExecutiveName) {
-                  setSelectedExecutiveName(s.assignedExecutiveName);
-                } else {
-                  setSelectedExecutiveName("");
-                }
-              }}
-              className="h-8 w-full rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900"
-              required
-            >
-              {shops.length === 0 ? (
-                <option value="">No shops available</option>
-              ) : (
-                shops.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+      {/* Segmented Mode Selector */}
+      <div className="grid grid-cols-2 p-1 gap-1 bg-muted/25 border-b border-border text-xs">
+        <button
+          type="button"
+          onClick={() => {
+            setIsManualMode(false);
+            setErrorMessage("");
+          }}
+          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded font-medium transition-all ${
+            !isManualMode
+              ? "bg-background text-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Store className="h-3.5 w-3.5" />
+          Select Existing Shop
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsManualMode(true);
+            setErrorMessage("");
+          }}
+          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded font-medium transition-all ${
+            isManualMode
+              ? "bg-background text-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add Shop Manually
+        </button>
+      </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="exec-select">Executive Member Name</Label>
+      <form onSubmit={handleSubmit}>
+        <CardContent className="space-y-3.5 p-4">
+          {errorMessage && (
+            <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+              {errorMessage}
+            </div>
+          )}
+
+          {isManualMode ? (
+            /* Manual Shop Name Input */
+            <div className="space-y-1.5">
+              <Label htmlFor="manual-shop-name" className="text-xs">
+                New Shop Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="manual-shop-name"
+                type="text"
+                value={manualShopName}
+                onChange={(e) => {
+                  setManualShopName(e.target.value);
+                  setErrorMessage("");
+                }}
+                placeholder="e.g. Royal Supermarket, Calicut"
+                autoFocus
+                required
+                className="h-8 text-xs font-medium"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                This shop will be added to the registered master and paired with the executive below.
+              </p>
+            </div>
+          ) : (
+            /* Select Existing Shop Dropdown */
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="shop-select" className="text-xs">
+                  Select Registered Shop <span className="text-destructive">*</span>
+                </Label>
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  {shops.length} {shops.length === 1 ? "shop" : "shops"}
+                </span>
+              </div>
+              <select
+                id="shop-select"
+                value={selectedShopId}
+                onChange={(e) => {
+                  const sId = e.target.value;
+                  setSelectedShopId(sId);
+                  const s = shops.find((item) => item.id === sId);
+                  if (s?.assignedExecutiveName) {
+                    setSelectedExecutiveName(s.assignedExecutiveName);
+                  } else {
+                    setSelectedExecutiveName("");
+                  }
+                }}
+                className="h-8 w-full rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900"
+                required
+              >
+                {shops.length === 0 ? (
+                  <option value="">No shops available</option>
+                ) : (
+                  shops.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} {s.assignedExecutiveName ? `(${s.assignedExecutiveName})` : "(Unassigned)"}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
+
+          {/* Executive Member Assignment */}
+          <div className="space-y-1.5">
+            <Label htmlFor="exec-select" className="text-xs">
+              Assign to Executive Member
+            </Label>
             <select
               id="exec-select"
               value={selectedExecutiveName}
@@ -110,6 +236,9 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
                 </option>
               ))}
             </select>
+            <p className="text-[11px] text-muted-foreground">
+              All collections and Excel invoice items for this shop will be routed to this executive.
+            </p>
           </div>
         </CardContent>
 
@@ -122,13 +251,15 @@ export function MappingForm({ initialShopId, onSuccess, onCancel }: MappingFormP
           <Button
             type="submit"
             size="sm"
-            disabled={updateExecutiveMutation.isPending}
+            disabled={isPending}
             className="h-7 text-xs font-medium"
           >
             {saved
-              ? "Saved"
-              : updateExecutiveMutation.isPending
+              ? "Saved!"
+              : isPending
               ? "Saving..."
+              : isManualMode
+              ? "Create & Assign Shop"
               : "Save Mapping"}
           </Button>
         </CardFooter>

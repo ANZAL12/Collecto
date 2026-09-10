@@ -162,15 +162,39 @@ export function matchExistingShop(
   };
 }
 
+export function isExcludedParticulars(text: string): boolean {
+  const clean = text.trim().toLowerCase();
+  if (!clean || clean === "-" || clean === "na" || clean === "n/a" || clean === "nil" || clean === "none") return true;
+  return (
+    clean.includes("cancel") || // matches cancelled, canceled, cancellation, (cancelled), etc.
+    clean.includes("void") ||
+    clean.includes("delete") ||
+    clean.includes("rejected") ||
+    clean.includes("total") ||
+    clean.includes("round off") ||
+    clean.includes("gross total") ||
+    clean.startsWith("input ") ||
+    clean.startsWith("output ") ||
+    clean === "cgst" ||
+    clean === "sgst" ||
+    clean === "igst" ||
+    clean.startsWith("cgst ") ||
+    clean.startsWith("sgst ") ||
+    clean.startsWith("igst ") ||
+    clean.startsWith("cess ")
+  );
+}
+
 /**
  * 7-Step Hierarchical Excel Parser matching against Existing Registered Shops:
  *
  * 1. Checks rows against the existing registered shops database.
- * 2. When an existing shop is detected (or dated GST SALES header), creates a shop collection object (Parent).
- * 3. Pulls the canonical shop name and mapped executive from the existing shop record.
- * 4. Reads all subsequent product/item rows.
- * 5. Attaches those items to the current shop.
- * 6. Continues until another shop row is encountered.
+ * 2. When a shop row is detected (existing registered OR brand new shop in spreadsheet),
+ *    creates a parent shop collection object.
+ * 3. Pulls the canonical shop name and mapped executive if already registered.
+ * 4. Reads all subsequent product/item rows under that shop.
+ * 5. Attaches items to the current parent shop until another shop row is encountered.
+ * 6. Skips cancelled vouchers, total rows, tax rows, and invalid shops.
  * 7. Repeats until end of file.
  */
 export async function simulateParseExcelFile(
@@ -246,6 +270,7 @@ export async function simulateParseExcelFile(
 
     const collections: ShopCollection[] = [];
     let currentShop: ShopCollection | null = null;
+    let isCurrentInvoiceSkipped = false;
 
     for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
       const row = rawRows[r];
@@ -258,83 +283,108 @@ export async function simulateParseExcelFile(
       const valueRaw = colIndex.value !== -1 ? String(row[colIndex.value] || "").replace(/,/g, "").trim() : "0";
       const valueNum = parseFloat(valueRaw) || 0;
 
-      const vTypeUpper = voucherTypeCell.toUpperCase();
-      const isGstSales =
-        (vTypeUpper === "GST SALES" || vTypeUpper.startsWith("GST SALES")) &&
-        !vTypeUpper.includes("RETAIL");
+      if (!particularsCell) continue;
 
-      // Match against existing registered shops master
-      const shopMatch = particularsCell
-        ? matchExistingShop(particularsCell, existingShops)
-        : null;
+      const isExcluded = isExcludedParticulars(particularsCell);
+      const isCancelled =
+        isExcluded ||
+        voucherTypeCell.toLowerCase().includes("cancel") ||
+        voucherNoCell.toLowerCase().includes("cancel");
 
-      // 1. Detect a Shop Row:
-      // Condition A: It has a Date and is GST SALES
-      // Condition B: OR the Particulars cell directly matches an existing registered shop
-      const isShopRow =
-        (dateCell !== "" && isGstSales) ||
-        (shopMatch && shopMatch.matched && !currentShop);
+      // If a cancelled voucher or total/tax row is encountered, reset currentShop boundary
+      if (isCancelled) {
+        if (dateCell !== "" || voucherNoCell !== "") {
+          currentShop = null;
+          isCurrentInvoiceSkipped = true;
+        }
+        continue;
+      }
 
-      if (isShopRow && particularsCell !== "") {
-        const canonicalName = shopMatch?.matched
-          ? shopMatch.canonicalShopName
-          : particularsCell;
-        const assignedExec = shopMatch?.assignedExecutive;
+      const vTypeNorm = voucherTypeCell
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      // Rule: GST SALE RETAIL (or any retail voucher) is NOT considered!
+      const isRetail = vTypeNorm.includes("RETAIL");
+
+      // Rule: If voucher type column exists and has a value, ONLY "GST SALES" (or "GST SALE") is considered!
+      const isGstSalesOnly =
+        !isRetail &&
+        (vTypeNorm === "GST SALES" ||
+         vTypeNorm === "GST SALE" ||
+         vTypeNorm.startsWith("GST SALES") ||
+         vTypeNorm.startsWith("GST SALE"));
+
+      // If this row has an explicit voucher type that is NOT GST SALES (e.g. GST SALE RETAIL, Receipt, Payment, etc.)
+      if (voucherTypeCell !== "" && (!isGstSalesOnly || isRetail)) {
+        currentShop = null;
+        isCurrentInvoiceSkipped = true;
+        continue;
+      }
+
+      // If voucher type is empty on a child item row, but the parent invoice was skipped (e.g. was retail), skip child items too
+      if (voucherTypeCell === "" && isCurrentInvoiceSkipped) {
+        if (dateCell === "" && voucherNoCell === "") {
+          continue;
+        }
+      }
+
+      // Check if matched in registered shops master
+      const shopMatch = matchExistingShop(particularsCell, existingShops);
+
+      // Detect a Shop (Parent) row:
+      // A. Explicit registered shop match (different from current shop)
+      const isRegisteredShopMatch =
+        shopMatch &&
+        shopMatch.matched &&
+        (!currentShop || shopMatch.canonicalShopName.toLowerCase() !== currentShop.shopName.toLowerCase());
+
+      // B. A new invoice header row with GST SALES voucher type or invoice indicators
+      const isNewInvoiceRow =
+        (colIndex.voucherType !== -1 && isGstSalesOnly) ||
+        (colIndex.voucherType === -1 && (dateCell !== "" || voucherNoCell !== "" || (gstinCell !== "" && gstinCell !== "-")));
+
+      const isShopRow = isRegisteredShopMatch || isNewInvoiceRow;
+
+      if (isShopRow) {
+        isCurrentInvoiceSkipped = false;
+        const isExisting = shopMatch ? shopMatch.matched : false;
+        const canonicalName = isExisting
+          ? shopMatch!.canonicalShopName
+          : particularsCell.trim();
+        const assignedExec = isExisting ? shopMatch!.assignedExecutive : undefined;
 
         currentShop = {
           id: `col-${collections.length + 1}`,
           shopName: canonicalName,
           invoiceNo: voucherNoCell || `INV-${r + 1}`,
-          invoiceDate: dateCell || "01-Sep-26",
+          invoiceDate: dateCell || (currentShop ? currentShop.invoiceDate : "01-Sep-26"),
           gstinUin: gstinCell || "-",
           totalAmount: valueNum,
           totalQuantity: quantityCell,
           executiveName: assignedExec,
           status: assignedExec ? "mapped" : "unmapped",
-          isExistingShop: shopMatch ? shopMatch.matched : false,
+          isExistingShop: isExisting,
           items: [],
         };
         collections.push(currentShop);
+      } else if (currentShop && !isCurrentInvoiceSkipped) {
+        // Child item row under the active parent shop
+        currentShop.items.push({
+          id: `item-${currentShop.id}-${currentShop.items.length + 1}`,
+          productName: particularsCell.trim(),
+          quantity: quantityCell || "1 Nos",
+          amount: valueNum,
+        });
       }
-      // 2. Subsequent child item rows under current shop:
-      else if (currentShop && particularsCell !== "") {
-        const lower = particularsCell.toLowerCase();
-        const isExcluded =
-          lower.includes("total") ||
-          lower.includes("round off") ||
-          lower.includes("gross total") ||
-          lower.startsWith("input ") ||
-          lower.startsWith("output ");
+    }
 
-        // Check if an existing registered shop starts here even if date was merged
-        const isAnotherRegisteredShop =
-          shopMatch &&
-          shopMatch.matched &&
-          shopMatch.canonicalShopName.toLowerCase() !== currentShop.shopName.toLowerCase();
-
-        if (isAnotherRegisteredShop) {
-          currentShop = {
-            id: `col-${collections.length + 1}`,
-            shopName: shopMatch.canonicalShopName,
-            invoiceNo: voucherNoCell || `INV-${r + 1}`,
-            invoiceDate: dateCell || currentShop.invoiceDate,
-            gstinUin: gstinCell || "-",
-            totalAmount: valueNum,
-            totalQuantity: quantityCell,
-            executiveName: shopMatch.assignedExecutive,
-            status: shopMatch.assignedExecutive ? "mapped" : "unmapped",
-            isExistingShop: true,
-            items: [],
-          };
-          collections.push(currentShop);
-        } else if (!isExcluded) {
-          currentShop.items.push({
-            id: `item-${currentShop.id}-${currentShop.items.length + 1}`,
-            productName: particularsCell,
-            quantity: quantityCell || "1 Nos",
-            amount: valueNum,
-          });
-        }
+    // If any parent shop total was 0, calculate sum of child items
+    for (const shop of collections) {
+      if (shop.totalAmount === 0 && shop.items.length > 0) {
+        shop.totalAmount = shop.items.reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
       }
     }
 

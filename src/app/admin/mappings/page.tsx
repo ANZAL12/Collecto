@@ -6,7 +6,7 @@ import { UnmappedShopsTable } from "@/components/mappings/unmapped-shops-table";
 import { MappingForm } from "@/components/mappings/mapping-form";
 import { Button } from "@/components/ui/button";
 import { useShopMappings } from "@/lib/hooks/use-queries";
-import { GitFork, RefreshCw } from "lucide-react";
+import { GitFork, RefreshCw, Plus } from "lucide-react";
 
 export default function AdminMappingsPage() {
   const { data: mappings = [], isLoading, isFetching, refetch } = useShopMappings();
@@ -48,8 +48,8 @@ export default function AdminMappingsPage() {
             }}
             className="h-8 text-xs font-semibold gap-1.5 shadow-xs"
           >
-            <GitFork className="h-3.5 w-3.5" />
-            {showMappingForm ? "Close Form" : "Create New Mapping"}
+            <Plus className="h-3.5 w-3.5" />
+            {showMappingForm ? "Close Form" : "Assign / Add Shop"}
           </Button>
         </div>
       }

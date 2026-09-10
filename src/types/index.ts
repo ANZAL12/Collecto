@@ -25,6 +25,8 @@ export interface NavItem {
 export interface Executive {
   id: string;
   name: string;
+  username?: string;
+  password?: string;
 }
 
 /**
@@ -73,6 +75,7 @@ export interface ShopCollection {
   status: "mapped" | "unmapped";
   isExistingShop?: boolean;
   uploadBatch?: string;
+  isPaid?: boolean;
   items: CollectionItem[];
 }
 

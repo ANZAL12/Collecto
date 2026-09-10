@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ExecutiveLandingView } from "@/components/executives/executive-landing-view";
 
-export default function ExecutiveProfilePage() {
+export default function ExecutiveDetailsPage() {
   return (
     <React.Suspense
       fallback={

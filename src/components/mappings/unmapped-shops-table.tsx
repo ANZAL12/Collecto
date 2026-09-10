@@ -11,7 +11,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+import { Search } from "lucide-react";
 
 interface UnmappedShopsTableProps {
   mappings: ShopMapping[];
@@ -24,22 +26,74 @@ export function UnmappedShopsTable({
   onAssign,
   className,
 }: UnmappedShopsTableProps) {
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<"ALL" | "unmapped" | "mapped">("ALL");
   const [currentPage, setCurrentPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
 
+  const unmappedCount = React.useMemo(
+    () => mappings.filter((m) => m.status === "unmapped").length,
+    [mappings]
+  );
+
+  const filteredMappings = React.useMemo(() => {
+    return mappings.filter((item) => {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        item.shopName.toLowerCase().includes(q) ||
+        (item.executiveName && item.executiveName.toLowerCase().includes(q));
+
+      const matchesStatus =
+        statusFilter === "ALL" || item.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [mappings, search, statusFilter]);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
+
   const paginatedMappings = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return mappings.slice(start, start + pageSize);
-  }, [mappings, currentPage, pageSize]);
+    return filteredMappings.slice(start, start + pageSize);
+  }, [filteredMappings, currentPage, pageSize]);
 
   return (
-    <Card className={className}>
-      <CardHeader className="flex flex-row items-center justify-between py-2.5 px-4 border-b border-border">
-        <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Shop Mappings Directory ({mappings.length})
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
+    <div className="space-y-3">
+      {/* Search and status filter bar */}
+      <div className="flex flex-col sm:flex-row items-center gap-2">
+        <div className="relative flex-1 w-full">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted-foreground">
+            <Search className="h-3.5 w-3.5" />
+          </div>
+          <Input
+            type="text"
+            placeholder="Search by shop name or executive..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 text-xs h-8"
+          />
+        </div>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as any)}
+          className="h-8 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 w-full sm:w-auto"
+        >
+          <option value="ALL">All Mappings ({mappings.length})</option>
+          <option value="unmapped">Unmapped Only ({unmappedCount})</option>
+          <option value="mapped">Mapped Only ({mappings.length - unmappedCount})</option>
+        </select>
+      </div>
+
+      <Card className={className}>
+        <CardHeader className="flex flex-row items-center justify-between py-2.5 px-4 border-b border-border">
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Shop Mappings Directory ({filteredMappings.length} {unmappedCount > 0 ? `• ${unmappedCount} need assignment` : ""})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -96,10 +150,10 @@ export function UnmappedShopsTable({
           </Table>
         </div>
 
-        {mappings.length > 0 && (
+        {filteredMappings.length > 0 && (
           <PaginationBar
             currentPage={currentPage}
-            totalItems={mappings.length}
+            totalItems={filteredMappings.length}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(newSize) => {
@@ -111,5 +165,6 @@ export function UnmappedShopsTable({
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

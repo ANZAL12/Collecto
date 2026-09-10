@@ -16,6 +16,9 @@ import {
   deleteUploadBatch,
   updateUploadBatchFileName,
   saveParsedCollectionsToDb,
+  toggleInvoicePaymentStatus,
+  updateExecutiveCredentials,
+  deleteExecutive,
 } from "@/lib/supabase/collections-service";
 import { ShopCollection } from "@/types";
 
@@ -88,9 +91,38 @@ export function useExecutiveCollections(execName: string) {
 export function useAddExecutiveMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => addExecutive(name),
+    mutationFn: (data: { name: string; username?: string; password?: string } | string) => {
+      if (typeof data === "string") return addExecutive(data);
+      return addExecutive(data.name, data.username, data.password);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executives });
+    },
+  });
+}
+
+export function useUpdateExecutiveCredentialsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, username, password, oldPassword }: { name: string; username: string; password: string; oldPassword?: string }) =>
+      updateExecutiveCredentials(name, username, password, oldPassword),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executives });
+    },
+  });
+}
+
+export function useDeleteExecutiveMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      deleteExecutive(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executives });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: ["executive_collections"] });
     },
   });
 }
@@ -103,6 +135,7 @@ export function useAddShopMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
     },
   });
 }
@@ -115,6 +148,7 @@ export function useBulkAddShopsMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
     },
   });
 }
@@ -134,6 +168,7 @@ export function useUpdateShopExecutiveMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
     },
   });
 }
@@ -157,6 +192,8 @@ export function useSaveCollectionsMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.uploadBatches });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
     },
   });
 }
@@ -179,6 +216,17 @@ export function useUpdateUploadBatchFileNameMutation() {
       updateUploadBatchFileName(batchId, newFileName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.uploadBatches });
+    },
+  });
+}
+
+export function useTogglePaymentStatusMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ invoiceId, isPaid }: { invoiceId: string; isPaid: boolean }) =>
+      toggleInvoicePaymentStatus(invoiceId, isPaid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
     },
   });
 }

@@ -4,7 +4,7 @@ import { UserSession } from "@/types";
 
 export const MOCK_ADMIN_USER: UserSession = {
   id: "user-admin",
-  name: "Operations Admin",
+  name: "Administrator",
   email: "admin@collecto.app",
   role: "admin",
 };
@@ -21,23 +21,31 @@ export const MOCK_EXECUTIVE_USER: UserSession = {
 const SESSION_STORAGE_KEY = "collecto_current_user";
 
 /**
- * Get active session from browser storage, defaults to Admin.
+ * Check if a valid session exists in persistent storage
+ */
+export function hasActiveSession(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(localStorage.getItem(SESSION_STORAGE_KEY));
+}
+
+/**
+ * Get active session from browser storage.
  */
 export function getCurrentUser(): UserSession {
   if (typeof window === "undefined") {
-    return MOCK_ADMIN_USER;
+    return { id: "", name: "", email: "", role: "executive" };
   }
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return MOCK_ADMIN_USER;
+    if (!raw) return { id: "", name: "", email: "", role: "executive" };
     return JSON.parse(raw) as UserSession;
   } catch {
-    return MOCK_ADMIN_USER;
+    return { id: "", name: "", email: "", role: "executive" };
   }
 }
 
 /**
- * Set active user session (Admin or Executive).
+ * Set active user session (persisted indefinitely until explicit logout).
  */
 export function setCurrentUser(user: UserSession): void {
   if (typeof window !== "undefined") {

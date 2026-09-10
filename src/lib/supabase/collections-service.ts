@@ -1,6 +1,38 @@
 
 import { createClient, isSupabaseConfigured } from "./client";
 import { ShopCollection, Executive, Shop, ShopMapping } from "@/types";
+import { signUpExecutiveWithSupabase, getStoredExecutiveCredentials, removeExecutiveCredential } from "@/lib/auth-service";
+
+export function isCancelledOrInvalidShop(name: string): boolean {
+  if (!name) return true;
+  const clean = name.trim().toLowerCase();
+  return (
+    clean === "" ||
+    clean === "-" ||
+    clean === "na" ||
+    clean === "n/a" ||
+    clean === "nil" ||
+    clean === "none" ||
+    clean.includes("cancel") ||
+    clean.includes("void") ||
+    clean.includes("delete") ||
+    clean.includes("rejected")
+  );
+}
+
+/**
+ * Asynchronously deletes any shop or collection records matching '%cancel%' from Supabase
+ */
+async function cleanupCancelledShopsFromDb(supabase: any) {
+  try {
+    await supabase.from("shops").delete().ilike("name", "%cancel%");
+    await supabase.from("shops").delete().ilike("name", "%void%");
+    await supabase.from("shop_collections").delete().ilike("shop_name", "%cancel%");
+    await supabase.from("shop_collections").delete().ilike("shop_name", "%void%");
+  } catch (err) {
+    // Silent background cleanup
+  }
+}
 
 /**
  * Saves a batch of parsed parent-child shop collections into Supabase
@@ -17,7 +49,10 @@ export async function saveParsedCollectionsToDb(
   if (!supabase) return { success: false, error: "Failed to initialize Supabase client" };
 
   try {
-    const totalItems = collections.reduce((acc, c) => acc + c.items.length, 0);
+    const validCollections = collections.filter(
+      (c) => !isCancelledOrInvalidShop(c.shopName)
+    );
+    const totalItems = validCollections.reduce((acc, c) => acc + c.items.length, 0);
 
     // Guard against rapid duplicate clicks (within 60 seconds for the same filename and item count)
     const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString();
@@ -42,7 +77,7 @@ export async function saveParsedCollectionsToDb(
       .from("upload_batches")
       .insert({
         file_name: fileName,
-        total_shops: collections.length,
+        total_shops: validCollections.length,
         total_items: totalItems,
       })
       .select("id")
@@ -55,29 +90,103 @@ export async function saveParsedCollectionsToDb(
 
     const batchId = batch.id;
 
-    // 2. Insert each parent shop collection and its child items
-    for (const shop of collections) {
+    // 2. Process each parent shop collection:
+    // Ensure all shops exist in `shops` table and `shop_mappings`
+    for (const shop of validCollections) {
+      const cleanShopName = shop.shopName.trim();
+      if (isCancelledOrInvalidShop(cleanShopName)) {
+        continue;
+      }
+      let assignedExecName = shop.executiveName;
+
+      // Check if shop exists in `shops` master
+      const { data: existingShop } = await supabase
+        .from("shops")
+        .select("id, name")
+        .ilike("name", cleanShopName)
+        .maybeSingle();
+
+      let shopId: string;
+
+      if (!existingShop) {
+        // A. NEW SHOP: Insert into `shops` table
+        const { data: newShop, error: newShopErr } = await supabase
+          .from("shops")
+          .insert({ name: cleanShopName })
+          .select("id, name")
+          .single();
+
+        if (newShopErr || !newShop) {
+          console.error("Error creating new shop from Excel:", newShopErr);
+          // Fallback fetch in case of concurrent insert
+          const { data: fallbackShop } = await supabase
+            .from("shops")
+            .select("id, name")
+            .ilike("name", cleanShopName)
+            .maybeSingle();
+          shopId = fallbackShop?.id || "";
+        } else {
+          shopId = newShop.id;
+        }
+
+        // B. Add new shop into `shop_mappings` as unmapped (executive_id = null)
+        // so admin can specify/assign mapping in Shop Mappings
+        if (shopId) {
+          await supabase
+            .from("shop_mappings")
+            .upsert(
+              { shop_id: shopId, executive_id: null },
+              { onConflict: "shop_id" }
+            );
+        }
+      } else {
+        shopId = existingShop.id;
+
+        // C. ALREADY REGISTERED SHOP:
+        // Check if this shop already has an executive mapping in `shop_mappings`
+        const { data: mappingData } = await supabase
+          .from("shop_mappings")
+          .select("executive_id, executives:executive_id (name)")
+          .eq("shop_id", shopId)
+          .maybeSingle();
+
+        const mappedExec = (mappingData?.executives as any)?.name;
+        if (mappedExec) {
+          // If already mapped shop, route collection directly to that executive
+          assignedExecName = mappedExec;
+        } else if (!mappingData) {
+          // Ensure mapping record exists as unmapped
+          await supabase
+            .from("shop_mappings")
+            .upsert(
+              { shop_id: shopId, executive_id: null },
+              { onConflict: "shop_id" }
+            );
+        }
+      }
+
+      // D. Insert into `shop_collections`
       const { data: parentShop, error: shopError } = await supabase
         .from("shop_collections")
         .insert({
-          shop_name: shop.shopName,
+          shop_name: cleanShopName,
           invoice_no: shop.invoiceNo,
           invoice_date: shop.invoiceDate,
           gstin_uin: shop.gstinUin,
           total_amount: shop.totalAmount,
           total_quantity: shop.totalQuantity ? String(shop.totalQuantity) : null,
-          executive_name: shop.executiveName,
+          executive_name: assignedExecName || null,
           upload_batch_id: batchId,
         })
         .select("id")
         .single();
 
       if (shopError) {
-        console.error(`Error saving shop ${shop.shopName}:`, shopError);
+        console.error(`Error saving shop ${cleanShopName}:`, shopError);
         continue;
       }
 
-      // 3. Insert child items for this parent shop
+      // E. Insert child items for this parent shop
       if (shop.items && shop.items.length > 0) {
         const itemRows = shop.items.map((item) => ({
           shop_collection_id: parentShop.id,
@@ -91,7 +200,7 @@ export async function saveParsedCollectionsToDb(
           .insert(itemRows);
 
         if (itemsError) {
-          console.error(`Error saving items for ${shop.shopName}:`, itemsError);
+          console.error(`Error saving items for ${cleanShopName}:`, itemsError);
         }
       }
     }
@@ -140,23 +249,76 @@ export async function getShopCollections(): Promise<ShopCollection[]> {
     return [];
   }
 
-  return data.map((row: any) => ({
-    id: row.id,
-    shopName: row.shop_name,
-    invoiceNo: row.invoice_no,
-    invoiceDate: row.invoice_date || "",
-    gstinUin: row.gstin_uin || "",
-    totalAmount: Number(row.total_amount) || 0,
-    totalQuantity: row.total_quantity,
-    executiveName: row.executive_name,
-    status: row.executive_name ? "mapped" : "unmapped",
-    items: (row.collection_items || []).map((item: any) => ({
-      id: item.id,
-      productName: item.product_name,
-      quantity: item.quantity,
-      amount: Number(item.amount) || 0,
-    })),
-  }));
+  const paidMap = getLocalPaymentStatusMap();
+
+  return data
+    .filter((row: any) => !isCancelledOrInvalidShop(row.shop_name))
+    .map((row: any) => ({
+      id: row.id,
+      shopName: row.shop_name,
+      invoiceNo: row.invoice_no,
+      invoiceDate: row.invoice_date || "",
+      gstinUin: row.gstin_uin || "",
+      totalAmount: Number(row.total_amount) || 0,
+      totalQuantity: row.total_quantity,
+      executiveName: row.executive_name,
+      status: row.executive_name ? "mapped" : "unmapped",
+      isPaid: typeof paidMap[row.id] === "boolean" ? paidMap[row.id] : Boolean(row.is_paid),
+      items: (row.collection_items || []).map((item: any) => ({
+        id: item.id,
+        productName: item.product_name,
+        quantity: item.quantity,
+        amount: Number(item.amount) || 0,
+      })),
+    }));
+}
+
+/**
+ * Get map of paid invoice IDs from localStorage
+ */
+export function getLocalPaymentStatusMap(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem("collecto_paid_invoices");
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Toggle payment status for an invoice (Reversible: Paid <-> Unpaid)
+ */
+export async function toggleInvoicePaymentStatus(
+  invoiceId: string,
+  isPaid: boolean
+): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const current = getLocalPaymentStatusMap();
+      current[invoiceId] = isPaid;
+      localStorage.setItem("collecto_paid_invoices", JSON.stringify(current));
+    } catch (e) {
+      console.warn("Failed to persist payment status:", e);
+    }
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      if (supabase) {
+        await supabase
+          .from("shop_collections")
+          .update({ is_paid: isPaid } as any)
+          .eq("id", invoiceId);
+      }
+    } catch {
+      // Ignored if is_paid column does not exist yet in remote schema
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -177,7 +339,21 @@ export async function getExecutives(): Promise<Executive[]> {
 
   const { data, error } = await supabase.from("executives").select("id, name").order("name");
   if (error || !data) return [];
-  return data;
+
+  const credsCache = getStoredExecutiveCredentials();
+
+  return data.map((exec) => {
+    const key = exec.name.trim().toLowerCase();
+    const cached = credsCache[key];
+    const defaultUsername = exec.name.toLowerCase().trim().split(/\s+/)[0].replace(/[^a-z0-9]/g, "");
+
+    return {
+      id: exec.id,
+      name: exec.name,
+      username: cached?.username || defaultUsername,
+      password: cached?.password || "password123",
+    };
+  });
 }
 
 /**
@@ -187,6 +363,9 @@ export async function getShops(): Promise<Shop[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = createClient();
   if (!supabase) return [];
+
+  // Trigger background cleanup of any cancelled records
+  cleanupCancelledShopsFromDb(supabase);
 
   const { data, error } = await supabase
     .from("shops")
@@ -205,19 +384,21 @@ export async function getShops(): Promise<Shop[]> {
     return [];
   }
 
-  return data.map((s: any) => {
-    const mapping = Array.isArray(s.shop_mappings) ? s.shop_mappings[0] : s.shop_mappings;
-    const execName = mapping?.executives?.name;
-    return {
-      id: s.id,
-      name: s.name,
-      assignedExecutiveName: execName || undefined,
-    };
-  });
+  return data
+    .filter((s: any) => !isCancelledOrInvalidShop(s.name))
+    .map((s: any) => {
+      const mapping = Array.isArray(s.shop_mappings) ? s.shop_mappings[0] : s.shop_mappings;
+      const execName = mapping?.executives?.name;
+      return {
+        id: s.id,
+        name: s.name,
+        assignedExecutiveName: execName || undefined,
+      };
+    });
 }
 
 /**
- * Fetch shop to executive mappings
+ * Fetch shop to executive mappings (all registered shops left-joined with mappings)
  */
 export async function getShopMappings(): Promise<ShopMapping[]> {
   if (!isSupabaseConfigured()) return [];
@@ -225,25 +406,37 @@ export async function getShopMappings(): Promise<ShopMapping[]> {
   if (!supabase) return [];
 
   const { data, error } = await supabase
-    .from("shop_mappings")
+    .from("shops")
     .select(`
       id,
-      shop_id,
-      executive_id,
-      shops:shop_id (name),
-      executives:executive_id (name)
-    `);
+      name,
+      shop_mappings (
+        id,
+        executive_id,
+        executives:executive_id (name)
+      )
+    `)
+    .order("name");
 
   if (error || !data) return [];
 
-  return data.map((row: any) => ({
-    id: row.id,
-    shopId: row.shop_id,
-    shopName: row.shops?.name || "Unknown Shop",
-    executiveId: row.executive_id,
-    executiveName: row.executives?.name,
-    status: row.executive_id ? "mapped" : "unmapped",
-  }));
+  return data
+    .filter((shop: any) => !isCancelledOrInvalidShop(shop.name))
+    .map((shop: any) => {
+      const mapping = Array.isArray(shop.shop_mappings)
+        ? shop.shop_mappings[0]
+        : shop.shop_mappings;
+      const execName = mapping?.executives?.name;
+
+      return {
+        id: mapping?.id || `map-${shop.id}`,
+        shopId: shop.id,
+        shopName: shop.name,
+        executiveId: mapping?.executive_id || undefined,
+        executiveName: execName || undefined,
+        status: execName ? ("mapped" as const) : ("unmapped" as const),
+      };
+    });
 }
 
 /**
@@ -274,22 +467,34 @@ export async function addShopWithExecutive(
     return { success: false, error: shopError?.message || "Failed to create shop" };
   }
 
-  // 2. If executive selected, insert mapping
-  if (executiveName) {
+  // 2. Insert or update mapping
+  let execId: string | null = null;
+  const cleanExec = executiveName?.trim();
+  if (cleanExec && cleanExec !== "-- Unassigned --") {
     const { data: execData } = await supabase
       .from("executives")
       .select("id")
-      .eq("name", executiveName)
+      .eq("name", cleanExec)
       .maybeSingle();
 
     if (execData) {
-      await supabase
-        .from("shop_mappings")
-        .upsert(
-          { shop_id: shopData.id, executive_id: execData.id },
-          { onConflict: "shop_id" }
-        );
+      execId = execData.id;
     }
+  }
+
+  await supabase
+    .from("shop_mappings")
+    .upsert(
+      { shop_id: shopData.id, executive_id: execId },
+      { onConflict: "shop_id" }
+    );
+
+  // 3. If executive was assigned, also cascade update to any existing collections
+  if (cleanExec && execId) {
+    await supabase
+      .from("shop_collections")
+      .update({ executive_name: cleanExec })
+      .ilike("shop_name", cleanName);
   }
 
   return {
@@ -297,7 +502,7 @@ export async function addShopWithExecutive(
     shop: {
       id: shopData.id,
       name: shopData.name,
-      assignedExecutiveName: executiveName,
+      assignedExecutiveName: execId ? cleanExec : undefined,
     },
   };
 }
@@ -322,7 +527,7 @@ export async function bulkAddShopsWithExecutive(
 }
 
 /**
- * Update executive assignment for an existing shop
+ * Update executive assignment for an existing shop and route all its collections
  */
 export async function updateShopExecutive(
   shopId: string,
@@ -336,10 +541,31 @@ export async function updateShopExecutive(
   const supabase = createClient();
   if (!supabase) return false;
 
+  const cleanExec = executiveName.trim();
+  const cleanShopName = shopName.trim();
+
+  // If unassigned
+  if (!cleanExec || cleanExec === "-- Unassigned --") {
+    await supabase
+      .from("shop_mappings")
+      .upsert(
+        { shop_id: shopId, executive_id: null },
+        { onConflict: "shop_id" }
+      );
+
+    // Unassign collections for this shop
+    await supabase
+      .from("shop_collections")
+      .update({ executive_name: null })
+      .ilike("shop_name", cleanShopName);
+
+    return true;
+  }
+
   const { data: execData } = await supabase
     .from("executives")
     .select("id")
-    .eq("name", executiveName)
+    .eq("name", cleanExec)
     .maybeSingle();
 
   if (!execData) return false;
@@ -351,31 +577,127 @@ export async function updateShopExecutive(
       { onConflict: "shop_id" }
     );
 
+  if (!error) {
+    // Automatically route all existing collections for this shop to this executive!
+    await supabase
+      .from("shop_collections")
+      .update({ executive_name: cleanExec })
+      .ilike("shop_name", cleanShopName);
+  }
+
   return !error;
 }
 
 /**
- * Add a new executive member
+ * Add a new executive member with username & password
  */
-export async function addExecutive(name: string): Promise<Executive | null> {
+export async function addExecutive(
+  name: string,
+  username?: string,
+  password?: string
+): Promise<Executive | null> {
   const cleanName = name.trim();
   if (!cleanName) return null;
 
-  if (!isSupabaseConfigured()) return { id: `exec-${Date.now()}`, name: cleanName };
-  const supabase = createClient();
-  if (!supabase) return null;
+  let execRecord: Executive = { id: `exec-${Date.now()}`, name: cleanName };
 
-  const { data, error } = await supabase
-    .from("executives")
-    .upsert({ name: cleanName }, { onConflict: "name" })
-    .select("id, name")
-    .single();
+  if (isSupabaseConfigured()) {
+    const supabase = createClient();
+    if (supabase) {
+      const { data, error: execError } = await supabase
+        .from("executives")
+        .upsert({ name: cleanName }, { onConflict: "name" })
+        .select("id, name")
+        .maybeSingle();
 
-  if (error || !data) {
-    console.error("Error adding executive:", error);
-    return null;
+      if (execError) {
+        throw new Error(execError.message || "Failed to save executive to database.");
+      }
+
+      if (data) {
+        execRecord = data;
+      }
+    }
   }
-  return data;
+
+  const cleanUser =
+    username?.trim() ||
+    cleanName
+      .toLowerCase()
+      .split(/\s+/)[0]
+      .replace(/[^a-z0-9]/g, "") ||
+    `exec_${Date.now().toString().slice(-4)}`;
+
+  const cleanPass = password?.trim() || "password123";
+
+  // Register in Supabase Auth
+  const authRes = await signUpExecutiveWithSupabase(cleanName, cleanUser, cleanPass);
+  if (!authRes.success) {
+    throw new Error(authRes.error || "Failed to register executive in Supabase Auth.");
+  }
+
+  return {
+    ...execRecord,
+    username: cleanUser,
+    password: cleanPass,
+  };
+}
+
+/**
+ * Update username and password for an executive
+ */
+export async function updateExecutiveCredentials(
+  name: string,
+  username: string,
+  password: string,
+  oldPassword?: string
+): Promise<boolean> {
+  const authRes = await signUpExecutiveWithSupabase(name, username.trim(), password.trim(), oldPassword);
+  if (!authRes.success) {
+    throw new Error(authRes.error || "Failed to update credentials in Supabase Auth.");
+  }
+  return true;
+}
+
+/**
+ * Delete an executive member, unassign their shops and collections
+ */
+export async function deleteExecutive(id: string, name: string): Promise<boolean> {
+  const cleanName = name.trim();
+
+  if (isSupabaseConfigured()) {
+    const supabase = createClient();
+    if (supabase) {
+      // 1. Unassign shops mapped to this executive
+      await supabase
+        .from("shop_mappings")
+        .update({ executive_id: null })
+        .eq("executive_id", id);
+
+      // 2. Unassign collections tagged with this executive's name
+      if (cleanName) {
+        await supabase
+          .from("shop_collections")
+          .update({ executive_name: null })
+          .ilike("executive_name", cleanName);
+      }
+
+      // 3. Delete from executives table
+      const { error } = await supabase
+        .from("executives")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        throw new Error(error.message || "Failed to delete executive from database.");
+      }
+    }
+  }
+
+  // 4. Remove cached credentials
+  removeExecutiveCredential(cleanName);
+
+  return true;
 }
 
 /**

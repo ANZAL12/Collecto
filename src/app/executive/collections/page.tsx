@@ -19,8 +19,9 @@ import { ShopCollection, CollectionItem } from "@/types";
 import { getCurrentUser } from "@/lib/mock-auth";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw, Building2 } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw, Building2, Calendar } from "lucide-react";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
+import { parseInvoiceMonth, getAvailableInvoiceMonths } from "@/lib/date-utils";
 
 export default function ExecutiveCollectionsPage() {
   const { data: allCollections = [], isLoading, isFetching, refetch } = useShopCollections();
@@ -31,6 +32,7 @@ export default function ExecutiveCollectionsPage() {
   const [currentPage, setCurrentPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
+  const [selectedMonthFilter, setSelectedMonthFilter] = React.useState<string>("all");
 
   const currentUser = getCurrentUser();
   const currentExecName = currentUser.name || "Rajesh Kumar";
@@ -43,17 +45,31 @@ export default function ExecutiveCollectionsPage() {
     });
   }, [currentExecName, allShops, allMappings, allCollections]);
 
+  // Executive assigned collections
+  const rawExecCollections = React.useMemo(() => {
+    return allCollections.filter(
+      (shop) => shop.executiveName?.toLowerCase() === currentExecName.toLowerCase()
+    );
+  }, [allCollections, currentExecName]);
+
+  // Available invoice months
+  const availableMonths = React.useMemo(() => {
+    return getAvailableInvoiceMonths(rawExecCollections);
+  }, [rawExecCollections]);
+
   const collections = React.useMemo(() => {
-    return allCollections.filter((shop) => {
-      const matchExec = shop.executiveName?.toLowerCase() === currentExecName.toLowerCase();
-      if (!matchExec) return false;
+    return rawExecCollections.filter((shop) => {
       if (selectedCompanyFilter !== "all") {
         const comp = shop.companyName || shop.brandName || "";
-        return comp.toLowerCase() === selectedCompanyFilter.toLowerCase();
+        if (comp.toLowerCase() !== selectedCompanyFilter.toLowerCase()) return false;
+      }
+      if (selectedMonthFilter !== "all") {
+        const parsed = parseInvoiceMonth(shop.invoiceDate);
+        if (!parsed || parsed.key !== selectedMonthFilter) return false;
       }
       return true;
     });
-  }, [allCollections, currentExecName, selectedCompanyFilter]);
+  }, [rawExecCollections, selectedCompanyFilter, selectedMonthFilter]);
 
   const filteredShops = React.useMemo(() => {
     if (!search.trim()) return collections;
@@ -65,13 +81,14 @@ export default function ExecutiveCollectionsPage() {
         (shop.companyName && shop.companyName.toLowerCase().includes(q)) ||
         (shop.brandName && shop.brandName.toLowerCase().includes(q)) ||
         (shop.gstinUin && shop.gstinUin.toLowerCase().includes(q)) ||
+        (shop.invoiceDate && shop.invoiceDate.toLowerCase().includes(q)) ||
         shop.items.some((item: CollectionItem) => item.productName.toLowerCase().includes(q))
     );
   }, [collections, search]);
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedCompanyFilter]);
+  }, [search, selectedCompanyFilter, selectedMonthFilter]);
 
   const paginatedShops = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -125,6 +142,23 @@ export default function ExecutiveCollectionsPage() {
                 {handledCompanies.map((c) => (
                   <option key={c} value={c}>
                     {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {availableMonths.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2 py-0.5 shadow-2xs">
+              <Calendar className="h-3 w-3 text-primary" />
+              <select
+                value={selectedMonthFilter}
+                onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                className="h-7 text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all">All Months ({availableMonths.length})</option>
+                {availableMonths.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label} ({m.count})
                   </option>
                 ))}
               </select>

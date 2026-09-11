@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Building2,
   Layers,
+  Calendar,
 } from "lucide-react";
 import {
   useExecutives,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { ShopCollection, UserSession, CollectionItem } from "@/types";
 import { LogOut } from "lucide-react";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
+import { parseInvoiceMonth, getAvailableInvoiceMonths } from "@/lib/date-utils";
 
 export interface ShopCardData {
   name: string;
@@ -77,6 +79,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   const isAdmin = session?.role === "admin";
   const [adminSelectedExec, setAdminSelectedExec] = React.useState<string>(() => urlParamName || "");
   const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
+  const [selectedMonthFilter, setSelectedMonthFilter] = React.useState<string>("all");
 
   React.useEffect(() => {
     if (urlParamName) {
@@ -113,6 +116,11 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     );
   }, [allCollections, activeExecutive]);
 
+  // Available invoice months for this executive's collections
+  const availableMonths = React.useMemo(() => {
+    return getAvailableInvoiceMonths(executiveCollections);
+  }, [executiveCollections]);
+
   // Shops assigned to this executive (STRICT: only shops mapped to this executive)
   const executiveShops = React.useMemo(() => {
     if (!activeExecutive) return [];
@@ -124,16 +132,30 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   // Handled companies for this executive
   const handledCompanies = React.useMemo(() => {
     if (!activeExecutive) return [];
-    return getExecutiveCompanies(activeExecutive, {
+    const fromUtil = getExecutiveCompanies(activeExecutive, {
       shops: allShops,
       mappings: allMappings,
       collections: allCollections,
     });
-  }, [activeExecutive, allShops, allMappings, allCollections]);
+    if (fromUtil.length > 0) return fromUtil;
 
-  // Reset company filter when switching executive
+    // Direct fallback from assigned collections & shops
+    const compSet = new Set<string>();
+    for (const c of executiveCollections) {
+      const comp = c.companyName?.trim() || c.brandName?.trim();
+      if (comp) compSet.add(comp);
+    }
+    for (const s of executiveShops) {
+      const comp = s.companyName?.trim() || s.brandName?.trim();
+      if (comp) compSet.add(comp);
+    }
+    return Array.from(compSet).sort((a, b) => a.localeCompare(b));
+  }, [activeExecutive, allShops, allMappings, allCollections, executiveCollections, executiveShops]);
+
+  // Reset filters when switching executive
   React.useEffect(() => {
     setSelectedCompanyFilter("all");
+    setSelectedMonthFilter("all");
   }, [activeExecutive]);
 
   // Group collections under each shop
@@ -188,8 +210,8 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       const displayName = canonicalNameMap.get(key) || key;
       const companies = Array.from(shopCompaniesMap.get(key) || []).sort();
 
-      // If a specific company is selected, filter invoices to that company
-      const invoices =
+      // 1. If a specific company is selected, filter invoices to that company
+      let invoices =
         selectedCompanyFilter && selectedCompanyFilter !== "all"
           ? rawInvoices.filter((inv) => {
               const comp = inv.companyName?.trim() || inv.brandName?.trim();
@@ -197,8 +219,21 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
             })
           : rawInvoices;
 
-      // If filtering by company, include shop if shop is associated with company or has matching invoices
-      if (selectedCompanyFilter && selectedCompanyFilter !== "all") {
+      // 2. If a specific month is selected, filter invoices to that month
+      if (selectedMonthFilter && selectedMonthFilter !== "all") {
+        invoices = invoices.filter((inv) => {
+          const m = parseInvoiceMonth(inv.invoiceDate);
+          return m?.key === selectedMonthFilter;
+        });
+      }
+
+      // Filter shop visibility:
+      // If filtering by month, only include shops that have sales in that month
+      if (selectedMonthFilter && selectedMonthFilter !== "all") {
+        if (invoices.length === 0) {
+          return;
+        }
+      } else if (selectedCompanyFilter && selectedCompanyFilter !== "all") {
         const matchesShopComp = companies.some(
           (c) => c.toLowerCase() === selectedCompanyFilter.toLowerCase()
         );
@@ -227,13 +262,24 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       });
     });
 
-    // Sort: pending dues first, then alphabetically
+    // Sort: pending dues / total sales first, then alphabetically
     return list.sort((a, b) => {
       if (a.pendingAmount > 0 && b.pendingAmount === 0) return -1;
       if (a.pendingAmount === 0 && b.pendingAmount > 0) return 1;
+      if (a.totalAmount > 0 && b.totalAmount === 0) return -1;
+      if (a.totalAmount === 0 && b.totalAmount > 0) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [executiveShops, executiveCollections, selectedCompanyFilter]);
+  }, [executiveShops, executiveCollections, selectedCompanyFilter, selectedMonthFilter]);
+
+  // Overall metrics for current active filter
+  const totalFilteredSales = React.useMemo(() => {
+    return shops.reduce((acc, s) => acc + s.totalAmount, 0);
+  }, [shops]);
+
+  const totalFilteredBills = React.useMemo(() => {
+    return shops.reduce((acc, s) => acc + s.invoices.length, 0);
+  }, [shops]);
 
   // Filtered by search
   const filteredShops = React.useMemo(() => {
@@ -247,6 +293,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
           inv.invoiceNo.toLowerCase().includes(q) ||
           inv.companyName?.toLowerCase().includes(q) ||
           inv.brandName?.toLowerCase().includes(q) ||
+          inv.invoiceDate?.toLowerCase().includes(q) ||
           inv.items?.some((it: CollectionItem) => it.productName.toLowerCase().includes(q))
       );
       return matchName || matchCompany || matchInvoice;
@@ -365,27 +412,60 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
               </button>
             </div>
 
-            {/* Handled Companies & Filter Chips */}
-            {handledCompanies.length > 0 && (
-              <div className="pt-2 border-t border-border/60 space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-muted-foreground font-mono flex items-center gap-1 text-[11px]">
-                    <Building2 className="h-3 w-3 text-primary" />
-                    <span>Companies Handled:</span>
-                  </span>
-                  {handledCompanies.length > 1 && selectedCompanyFilter !== "all" && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCompanyFilter("all")}
-                      className="text-primary font-mono hover:underline text-[10px]"
-                    >
-                      Show All
-                    </button>
+            {/* Handled Companies & Month Filter Section */}
+            {(handledCompanies.length > 0 || availableMonths.length > 0) && (
+              <div className="pt-2 border-t border-border/60 space-y-2">
+                <div className="flex items-center justify-between text-[11px] gap-2 flex-wrap">
+                  {handledCompanies.length > 0 ? (
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="text-muted-foreground font-mono flex items-center gap-1 text-[11px] shrink-0">
+                        <Building2 className="h-3 w-3 text-primary shrink-0" />
+                        <span>{handledCompanies.length === 1 ? "Company:" : "Companies:"}</span>
+                      </span>
+                      {handledCompanies.length === 1 ? (
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-muted/60 border border-border text-foreground">
+                          {handledCompanies[0]}
+                        </span>
+                      ) : (
+                        selectedCompanyFilter !== "all" && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCompanyFilter("all")}
+                            className="text-primary font-mono hover:underline text-[10px] ml-1"
+                          >
+                            Show All
+                          </button>
+                        )
+                      )}
+                    </div>
+                  ) : <div />}
+
+                  {/* Month Filter Selector */}
+                  {availableMonths.length > 0 && (
+                    <div className="flex items-center gap-1.5 bg-background border border-border rounded-lg px-2 py-1 shadow-2xs ml-auto shrink-0">
+                      <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <select
+                        value={selectedMonthFilter}
+                        onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                        className="text-[11px] font-mono bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+                        aria-label="Filter by month"
+                      >
+                        <option value="all">
+                          All Months ({availableMonths.reduce((acc, m) => acc + (m.count || 0), 0)})
+                        </option>
+                        {availableMonths.map((m) => (
+                          <option key={m.key} value={m.key}>
+                            {m.label} ({m.count} bills)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-                  {handledCompanies.length > 1 && (
+                {/* Company filter chips if multiple companies */}
+                {handledCompanies.length > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
                     <button
                       type="button"
                       onClick={() => setSelectedCompanyFilter("all")}
@@ -395,31 +475,27 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                           : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
                       }`}
                     >
-                      All ({shops.length})
+                      All Brands ({shops.length})
                     </button>
-                  )}
-                  {handledCompanies.map((comp) => {
-                    const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
-                    return (
-                      <button
-                        key={comp}
-                        type="button"
-                        onClick={() => {
-                          if (handledCompanies.length > 1) {
-                            setSelectedCompanyFilter(isSelected ? "all" : comp);
-                          }
-                        }}
-                        className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
-                          isSelected
-                            ? "bg-foreground text-background border-foreground shadow-2xs"
-                            : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
-                        }`}
-                      >
-                        <span>{comp}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                    {handledCompanies.map((comp) => {
+                      const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
+                      return (
+                        <button
+                          key={comp}
+                          type="button"
+                          onClick={() => setSelectedCompanyFilter(isSelected ? "all" : comp)}
+                          className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
+                            isSelected
+                              ? "bg-foreground text-background border-foreground shadow-2xs"
+                              : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                          }`}
+                        >
+                          <span>{comp}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -449,6 +525,31 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
           )}
         </div>
 
+        {/* Active Month Sales Summary Banner */}
+        {selectedMonthFilter !== "all" && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-xs shadow-2xs animate-in fade-in">
+            <div className="flex items-center gap-1.5 font-medium text-foreground min-w-0">
+              <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="truncate">
+                {availableMonths.find((m) => m.key === selectedMonthFilter)?.label || selectedMonthFilter} Sales:
+              </span>
+              <span className="font-bold font-mono text-primary shrink-0">
+                {formatCurrency(totalFilteredSales)}
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                ({totalFilteredBills} {totalFilteredBills === 1 ? "bill" : "bills"})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedMonthFilter("all")}
+              className="text-[11px] font-mono text-primary hover:underline ml-2 shrink-0 font-medium"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {/* SHOPS AS CARDS */}
         {isLoading ? (
           <div className="py-12 text-center text-xs text-muted-foreground font-mono">
@@ -459,19 +560,22 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
             <p className="text-xs text-muted-foreground">
               {searchQuery
                 ? `No shops found matching "${searchQuery}"`
+                : selectedMonthFilter !== "all"
+                ? `No sales recorded in ${availableMonths.find((m) => m.key === selectedMonthFilter)?.label || selectedMonthFilter}.`
                 : selectedCompanyFilter !== "all"
                 ? `No shops found for company "${selectedCompanyFilter}".`
                 : activeExecutive
                 ? `No shops assigned to ${activeExecutive} yet. Contact admin to assign shops.`
                 : "No shops assigned to your account."}
             </p>
-            {(searchQuery || selectedCompanyFilter !== "all") && (
+            {(searchQuery || selectedCompanyFilter !== "all" || selectedMonthFilter !== "all") && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setSearchQuery("");
                   setSelectedCompanyFilter("all");
+                  setSelectedMonthFilter("all");
                 }}
                 className="h-7 text-xs font-mono"
               >
@@ -520,35 +624,25 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-muted-foreground">
                         {shop.invoices.length === 0 ? (
-                          <span>No bills</span>
+                          <span>0 bills</span>
                         ) : shop.allPaid ? (
                           <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                             <CheckCircle2 className="h-3 w-3" />
-                            All Paid
+                            {shop.invoices.length} {shop.invoices.length === 1 ? "bill (Paid)" : "bills (Paid)"}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-                            <Clock className="h-3 w-3" />
-                            {shop.unpaidCount} Pending
+                          <span>
+                            {shop.invoices.length} {shop.invoices.length === 1 ? "bill" : "bills"}
                           </span>
                         )}
-                        <span>•</span>
-                        <span>
-                          {shop.invoices.length} {shop.invoices.length === 1 ? "bill" : "bills"}
-                        </span>
                       </div>
                     </div>
 
                     <div className="text-right shrink-0 flex items-center gap-2">
-                      <div>
-                        <div className="text-sm font-bold font-mono text-foreground">
-                          {formatCurrency(
-                            shop.pendingAmount > 0 ? shop.pendingAmount : shop.totalAmount
-                          )}
-                        </div>
-                        <span className="text-[10px] font-mono text-muted-foreground block">
-                          {shop.pendingAmount > 0 ? "Pending" : "Cleared"}
-                        </span>
+                      <div className="text-sm font-bold font-mono text-foreground">
+                        {formatCurrency(
+                          shop.pendingAmount > 0 ? shop.pendingAmount : shop.totalAmount
+                        )}
                       </div>
                       <div className="text-muted-foreground">
                         {isExpanded ? (
@@ -631,9 +725,8 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                                       Paid
                                     </span>
                                   ) : (
-                                    <span className="text-amber-600 dark:text-amber-400 font-medium inline-flex items-center gap-1">
-                                      <Clock className="h-3 w-3" />
-                                      Pending
+                                    <span className="text-muted-foreground font-medium">
+                                      Unpaid
                                     </span>
                                   )}
                                 </span>

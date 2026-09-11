@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, Building2 } from "lucide-react";
+import { Search, Building2, Calendar } from "lucide-react";
 import { ErpContainer } from "@/components/layout/erp-container";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -18,10 +18,12 @@ import { getCurrentUser } from "@/lib/mock-auth";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
+import { parseInvoiceMonth, getAvailableInvoiceMonths } from "@/lib/date-utils";
 
 export default function ExecutiveDashboardPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
+  const [selectedMonthFilter, setSelectedMonthFilter] = React.useState<string>("all");
   const { data: allColls = [], isLoading: isLoadingColls } = useShopCollections();
   const { data: allShops = [], isLoading: isLoadingShops } = useShops();
   const { data: allMappings = [] } = useShopMappings();
@@ -46,17 +48,31 @@ export default function ExecutiveDashboardPage() {
     });
   }, [currentExecName, allShops, allMappings, allColls]);
 
+  // Executive assigned raw collections
+  const rawExecCollections = React.useMemo(() => {
+    return allColls.filter(
+      (c) => c.executiveName?.toLowerCase() === currentExecName.toLowerCase()
+    );
+  }, [allColls, currentExecName]);
+
+  // Available invoice months
+  const availableMonths = React.useMemo(() => {
+    return getAvailableInvoiceMonths(rawExecCollections);
+  }, [rawExecCollections]);
+
   const collections = React.useMemo(() => {
-    return allColls.filter((c) => {
-      const matchExec = c.executiveName?.toLowerCase() === currentExecName.toLowerCase();
-      if (!matchExec) return false;
+    return rawExecCollections.filter((c) => {
       if (selectedCompanyFilter !== "all") {
         const comp = c.companyName || c.brandName || "";
-        return comp.toLowerCase() === selectedCompanyFilter.toLowerCase();
+        if (comp.toLowerCase() !== selectedCompanyFilter.toLowerCase()) return false;
+      }
+      if (selectedMonthFilter !== "all") {
+        const parsed = parseInvoiceMonth(c.invoiceDate);
+        if (!parsed || parsed.key !== selectedMonthFilter) return false;
       }
       return true;
     });
-  }, [allColls, currentExecName, selectedCompanyFilter]);
+  }, [rawExecCollections, selectedCompanyFilter, selectedMonthFilter]);
 
   const shops = React.useMemo(() => {
     return allShops.filter((s) => {
@@ -85,7 +101,7 @@ export default function ExecutiveDashboardPage() {
 
   React.useEffect(() => {
     setColPage(1);
-  }, [searchQuery, selectedCompanyFilter]);
+  }, [searchQuery, selectedCompanyFilter, selectedMonthFilter]);
 
   const paginatedCollections = React.useMemo(() => {
     const start = (colPage - 1) * colPageSize;
@@ -105,23 +121,42 @@ export default function ExecutiveDashboardPage() {
       badge="Executive"
       description={`Collections for ${currentExecName}`}
       actions={
-        handledCompanies.length > 0 ? (
-          <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2 py-0.5 shadow-2xs">
-            <Building2 className="h-3 w-3 text-muted-foreground" />
-            <select
-              value={selectedCompanyFilter}
-              onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-              className="h-7 text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="all">All Companies ({handledCompanies.length})</option>
-              {handledCompanies.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : undefined
+        <div className="flex items-center gap-2 flex-wrap">
+          {handledCompanies.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2 py-0.5 shadow-2xs">
+              <Building2 className="h-3 w-3 text-muted-foreground" />
+              <select
+                value={selectedCompanyFilter}
+                onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                className="h-7 text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all">All Companies ({handledCompanies.length})</option>
+                {handledCompanies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {availableMonths.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2 py-0.5 shadow-2xs">
+              <Calendar className="h-3 w-3 text-primary" />
+              <select
+                value={selectedMonthFilter}
+                onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                className="h-7 text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="all">All Months ({availableMonths.length})</option>
+                {availableMonths.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label} ({m.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       }
     >
       {/* Companies Handled Banner if multiple companies */}

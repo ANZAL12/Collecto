@@ -17,6 +17,14 @@ export const metadata: Metadata = {
   title: "Collecto — Collection Management System",
   description:
     "Internal operations system for automated Excel collection processing, shop-to-executive mapping, and field reconciliation.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

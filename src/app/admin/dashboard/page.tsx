@@ -334,9 +334,8 @@ export default function AdminDashboardPage() {
             )}
           >
             <UploadCloud className="h-3.5 w-3.5 text-primary" />
-            <span>Parser 1: Sale Details</span>
+            <span>Haier and Zoom Upload</span>
             <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-muted text-muted-foreground">
-              Original
             </span>
           </button>
 
@@ -350,17 +349,10 @@ export default function AdminDashboardPage() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
-            <span>Parser 2: Sales Register</span>
-            <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">
-              New
-            </span>
+            <UploadCloud className="h-3.5 w-3.5 text-emerald-500" />
+            <span>Other Brands Uploads</span>
           </button>
         </div>
-
-        <Badge variant="outline" className="text-[11px] font-mono text-muted-foreground border-border self-start sm:self-auto">
-          Active: {activeParser === "parser1" ? "Parser 1 (Original Technique)" : "Parser 2 (Voucher Type Mode)"}
-        </Badge>
       </div>
 
       {/* Parser 2 Rules Notice */}

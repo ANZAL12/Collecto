@@ -764,7 +764,7 @@ export function ExecutiveDetailsView() {
 
                   return (
                     <div
-                      key={shop.id || `${shop.name}_${idx}`}
+                      key={`${shop.id || shop.name}_${shop.companyId || shop.brandId || ""}_${idx}`}
                       className="rounded-xl border border-border bg-card p-3 sm:p-3.5 shadow-2xs flex items-center justify-between gap-3 hover:border-border/80 transition-all"
                     >
                       <div className="flex items-center gap-3 min-w-0">

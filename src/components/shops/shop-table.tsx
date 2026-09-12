@@ -76,7 +76,7 @@ export function ShopTable({
                 </TableRow>
               ) : (
                 paginatedShops.map((shop, idx) => (
-                  <TableRow key={shop.id || `${shop.name}_${idx}`}>
+                  <TableRow key={`${shop.id}_${shop.companyId || shop.brandId || ""}_${idx}`}>
                     <TableCell className="text-center font-mono text-xs text-muted-foreground">
                       {(currentPage - 1) * pageSize + idx + 1}
                     </TableCell>

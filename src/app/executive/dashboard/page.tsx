@@ -314,7 +314,7 @@ export default function ExecutiveDashboardPage() {
                   </TableRow>
                 ) : (
                   paginatedShops.map((shop, idx) => (
-                    <TableRow key={shop.id || `${shop.name}_${idx}`}>
+                    <TableRow key={`${shop.id || shop.name}_${shop.companyId || shop.brandId || ""}_${idx}`}>
                       <TableCell className="text-center font-mono text-xs text-muted-foreground">
                         {(shopPage - 1) * shopPageSize + idx + 1}
                       </TableCell>

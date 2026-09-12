@@ -66,13 +66,15 @@ function getCollectoWebUrl() {
   return "";
 }
 
-// Determine target URL
-const configuredCloudUrl = getCollectoWebUrl();
-const isDev = !app.isPackaged && process.env.NODE_ENV !== "production" && !configuredCloudUrl;
+// Determine target URL:
+// In development (!app.isPackaged), always connect to local dev server to preview code changes.
+// In packaged production desktop app (app.isPackaged), connect to configured Cloud URL.
+const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
 const DEV_PORT = process.env.PORT || 3000;
-const targetUrl = configuredCloudUrl
-  ? `${configuredCloudUrl}/admin/dashboard`
-  : `http://127.0.0.1:${DEV_PORT}/admin/dashboard`;
+const configuredCloudUrl = getCollectoWebUrl();
+const targetUrl = isDev
+  ? `http://127.0.0.1:${DEV_PORT}/admin/dashboard`
+  : (configuredCloudUrl ? `${configuredCloudUrl}/admin/dashboard` : `http://127.0.0.1:${DEV_PORT}/admin/dashboard`);
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({

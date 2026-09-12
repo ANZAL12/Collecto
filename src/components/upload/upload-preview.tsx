@@ -125,10 +125,10 @@ export function UploadPreview({
       </CardHeader>
 
       {notUniqueCount > 0 && (
-        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-600 dark:text-amber-400">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/20 p-2.5 text-xs text-blue-600 dark:text-blue-400">
+          <Info className="h-4 w-4 shrink-0" />
           <span>
-            <strong>Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} not unique (multi-brand or mapped under multiple companies). Checked against selected company first.
+            <strong>Multi-Company Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} registered across multiple companies. Invoices will be recorded under the designated company.
           </span>
         </div>
       )}
@@ -182,10 +182,20 @@ export function UploadPreview({
                           {(currentPage - 1) * pageSize + index + 1}
                         </TableCell>
                         <TableCell className="text-xs">
-                          <div className="font-bold text-foreground">{shop.shopName}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-foreground">{shop.shopName}</span>
+                            {shop.companyName && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono px-1.5 py-0 bg-primary/5 text-primary border-primary/20"
+                              >
+                                {shop.companyName}
+                              </Badge>
+                            )}
+                          </div>
                           {shop.uniquenessMessage && (
-                            <div className="mt-1 flex items-center gap-1 text-[10px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 max-w-fit">
-                              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                            <div className="mt-1 flex items-center gap-1 text-[10px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 max-w-fit">
+                              <Info className="h-2.5 w-2.5 shrink-0" />
                               <span>{shop.uniquenessMessage}</span>
                             </div>
                           )}

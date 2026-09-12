@@ -6,12 +6,24 @@ import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { getCurrentSession } from "@/lib/auth-service";
 
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS } from "@/lib/hooks/use-queries";
+import {
+  getCompanies,
+  getExecutives,
+  getShops,
+  getShopMappings,
+  getUploadBatches,
+  getShopCollections,
+} from "@/lib/supabase/collections-service";
+
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [authorized, setAuthorized] = React.useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -23,6 +35,35 @@ export default function AdminLayout({
       setAuthorized(true);
     }
   }, [router]);
+
+  // Eagerly prefetch all admin routes and data into memory so tab switching is instantaneous
+  React.useEffect(() => {
+    if (authorized) {
+      const routes = [
+        "/admin/dashboard",
+        "/admin/upload-history",
+        "/admin/mappings",
+        "/admin/companies",
+        "/admin/executives",
+        "/admin/shops",
+        "/admin/collections",
+        "/admin/settings",
+      ];
+      routes.forEach((route) => {
+        try {
+          router.prefetch(route);
+        } catch {}
+      });
+
+      // Background warm-up of core datasets
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.companies, queryFn: getCompanies, staleTime: 5 * 60 * 1000 });
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.executives, queryFn: getExecutives, staleTime: 5 * 60 * 1000 });
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.shops, queryFn: getShops, staleTime: 5 * 60 * 1000 });
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.shopMappings, queryFn: getShopMappings, staleTime: 5 * 60 * 1000 });
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.uploadBatches, queryFn: getUploadBatches, staleTime: 5 * 60 * 1000 });
+      queryClient.prefetchQuery({ queryKey: QUERY_KEYS.shopCollections, queryFn: getShopCollections, staleTime: 5 * 60 * 1000 });
+    }
+  }, [authorized, router, queryClient]);
 
   if (!authorized) {
     return (

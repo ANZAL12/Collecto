@@ -2,24 +2,22 @@
   "appId": "com.collecto.admin",
   "productName": "Collecto Admin",
   "copyright": "Copyright © 2026 Collecto",
+  "electronVersion": "44.3.0",
+  "compression": "maximum",
   "directories": {
-    "app": "electron",
-    "output": "release"
+    "output": "../release"
   },
   "asar": true,
-  "npmRebuild": false,
-  "nodeGypRebuild": false,
   "files": [
-    "**/*"
+    "main.js",
+    "preload.js",
+    "config.json",
+    "favicon.ico"
   ],
   "win": {
     "target": [
       {
         "target": "nsis",
-        "arch": ["x64"]
-      },
-      {
-        "target": "portable",
         "arch": ["x64"]
       }
     ],

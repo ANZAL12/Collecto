@@ -1,0 +1,7 @@
+{
+  "name": "collecto-admin-desktop",
+  "version": "0.1.0",
+  "description": "Collecto Admin Desktop Application",
+  "main": "main.js",
+  "author": "Collecto"
+}

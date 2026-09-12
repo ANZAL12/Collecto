@@ -122,6 +122,7 @@ export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) 
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   onClick={onClose}
                   className={cn(
                     "flex items-center justify-between rounded px-2.5 py-1.5 text-xs transition-colors",

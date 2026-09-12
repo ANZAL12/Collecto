@@ -4,9 +4,10 @@ const fs = require("fs");
 
 // Performance optimization flags for Windows 10 & integrated graphics
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("enable-zero-copy");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
 app.commandLine.appendSwitch("enable-fast-unload");
 
 // Prevent multiple instances of the app
@@ -80,7 +81,9 @@ function createMainWindow() {
     minWidth: 1080,
     minHeight: 700,
     title: "Collecto — Admin Desktop",
-    icon: path.join(__dirname, "../public/favicon.ico"),
+    icon: fs.existsSync(path.join(__dirname, "favicon.ico"))
+      ? path.join(__dirname, "favicon.ico")
+      : path.join(__dirname, "../public/favicon.ico"),
     backgroundColor: "#09090b",
     show: false,
     webPreferences: {

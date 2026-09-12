@@ -70,6 +70,7 @@ export function TopNavbar({ onOpenMobileMenu, role }: TopNavbarProps) {
           {role === "admin" && (
             <Link
               href="/admin/companies"
+              prefetch={true}
               className="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1 bg-card hover:bg-muted transition-colors"
               title="Manage Companies / Brands"
             >

@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, shell } = require("electron");
 const path = require("path");
 
+const fs = require("fs");
+
 // Prevent multiple instances of the app
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -9,13 +11,52 @@ if (!gotTheLock) {
 
 let mainWindow = null;
 
-// Determine environment
-const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
+function getCollectoWebUrl() {
+  if (process.env.COLLECTO_WEB_URL) {
+    return process.env.COLLECTO_WEB_URL.trim().replace(/\/+$/, "");
+  }
+
+  const configPath = path.join(__dirname, "config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (cfg.COLLECTO_WEB_URL) {
+        return cfg.COLLECTO_WEB_URL.trim().replace(/\/+$/, "");
+      }
+    } catch {}
+  }
+
+  const envFiles = [
+    path.join(__dirname, "..", ".env.local"),
+    path.join(__dirname, "..", ".env"),
+  ];
+  for (const envPath of envFiles) {
+    if (fs.existsSync(envPath)) {
+      try {
+        const content = fs.readFileSync(envPath, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("COLLECTO_WEB_URL=")) {
+            const val = trimmed
+              .replace("COLLECTO_WEB_URL=", "")
+              .trim()
+              .replace(/^["']|["']$/g, "");
+            if (val) return val.replace(/\/+$/, "");
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return "";
+}
+
+// Determine target URL
+const configuredCloudUrl = getCollectoWebUrl();
+const isDev = !app.isPackaged && process.env.NODE_ENV !== "production" && !configuredCloudUrl;
 const DEV_PORT = process.env.PORT || 3000;
-const DEV_URL = `http://127.0.0.1:${DEV_PORT}/admin/dashboard`;
-// Configurable remote production URL or fallback
-const PROD_URL = process.env.COLLECTO_WEB_URL
-  ? `${process.env.COLLECTO_WEB_URL}/admin/dashboard`
+const targetUrl = configuredCloudUrl
+  ? `${configuredCloudUrl}/admin/dashboard`
   : `http://127.0.0.1:${DEV_PORT}/admin/dashboard`;
 
 function createMainWindow() {
@@ -47,9 +88,7 @@ function createMainWindow() {
     }
   );
 
-  const startUrl = isDev ? DEV_URL : PROD_URL;
-
-  mainWindow.loadURL(startUrl);
+  mainWindow.loadURL(targetUrl);
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -81,8 +120,7 @@ function setupMenu() {
           accelerator: "CmdOrCtrl+D",
           click: () => {
             if (mainWindow) {
-              const url = isDev ? DEV_URL : PROD_URL;
-              mainWindow.loadURL(url);
+              mainWindow.loadURL(targetUrl);
             }
           },
         },

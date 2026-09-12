@@ -178,7 +178,7 @@ export default function AdminDashboardPage() {
 
   return (
     <ErpContainer
-      title="Upload Center"
+      title="Upload Sale Details"
       badge="Admin"
       description="Upload daily Excel spreadsheets to process collections and assign to executives."
       actions={

@@ -24,7 +24,7 @@ export const navigationItems: NavItem[] = [
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    description: "Upload Center & KPI Overview",
+    description: "Upload Sale Details & KPI Overview",
   },
   {
     title: "Uploads",

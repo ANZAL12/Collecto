@@ -217,11 +217,10 @@ export default function AdminCompaniesPage() {
       {/* Toast Notification Banner */}
       {notification && (
         <div
-          className={`flex items-center justify-between gap-2 p-2.5 px-3.5 text-xs rounded border font-mono animate-in fade-in duration-150 ${
-            notification.type === "success"
+          className={`flex items-center justify-between gap-2 p-2.5 px-3.5 text-xs rounded border font-mono animate-in fade-in duration-150 ${notification.type === "success"
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
               : "bg-destructive/10 border-destructive/30 text-destructive"
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2">
             {notification.type === "success" ? (
@@ -330,7 +329,7 @@ export default function AdminCompaniesPage() {
                 autoFocus
               />
               <p className="text-[10px] text-muted-foreground">
-                Display name shown in Upload Center and executive cards.
+                Display name shown in Upload Sale Details and executive cards.
               </p>
             </div>
 

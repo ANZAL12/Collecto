@@ -2,11 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Building2, Plus, Settings2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Building2 } from "lucide-react";
 import { useCompanies } from "@/lib/hooks/use-queries";
 import { Company } from "@/types";
-import { CompanyManagerDialog } from "./company-manager-dialog";
 
 interface CompanySelectBarProps {
   selectedCompanyId: string;
@@ -20,7 +18,6 @@ export function CompanySelectBar({
   disabled = false,
 }: CompanySelectBarProps) {
   const { data: companies = [], isLoading } = useCompanies();
-  const [showManagerDialog, setShowManagerDialog] = React.useState(false);
 
   // Auto-select first company if none is selected
   React.useEffect(() => {
@@ -66,7 +63,7 @@ export function CompanySelectBar({
             value={selectedCompanyId}
             onChange={handleSelectChange}
             disabled={disabled || isLoading}
-            className="h-8 rounded-md border border-input bg-background px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-w-[180px]"
+            className="h-8 rounded-md border border-input bg-background px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-w-[200px]"
           >
             {companies.length === 0 ? (
               <option value="">No companies created yet</option>
@@ -78,28 +75,6 @@ export function CompanySelectBar({
               ))
             )}
           </select>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowManagerDialog(true)}
-            disabled={disabled}
-            className="h-8 text-xs font-semibold gap-1.5 shrink-0 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary"
-            title="Quick add or edit companies"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Quick Add</span>
-          </Button>
-
-          <Link
-            href="/admin/companies"
-            className="inline-flex items-center gap-1 h-8 rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-            title="Open Dedicated Companies Master Page"
-          >
-            <Settings2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Master Page</span>
-          </Link>
         </div>
       </div>
 
@@ -112,24 +87,15 @@ export function CompanySelectBar({
         </div>
       ) : (
         <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px] text-amber-600 dark:text-amber-400">
-          <span>No company selected. Please add or select a company before uploading.</span>
-          <button
-            type="button"
-            onClick={() => setShowManagerDialog(true)}
+          <span>No company selected. Please select a company before uploading.</span>
+          <Link
+            href="/admin/companies"
             className="underline font-medium hover:text-amber-700"
           >
-            + Add Company Now
-          </button>
+            Go to Companies
+          </Link>
         </div>
       )}
-
-      {/* Full Company Manager Dialog */}
-      <CompanyManagerDialog
-        isOpen={showManagerDialog}
-        onClose={() => setShowManagerDialog(false)}
-        selectedCompanyId={selectedCompanyId}
-        onSelectCompany={(company) => onSelectCompany(company)}
-      />
     </div>
   );
 }

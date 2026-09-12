@@ -19,7 +19,7 @@ import { NavItem } from "@/types";
 
 export const adminNavItems: NavItem[] = [
   {
-    title: "Upload Center",
+    title: "Upload Sale Details",
     href: "/admin/dashboard",
     icon: UploadCloud,
   },

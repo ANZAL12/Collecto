@@ -224,7 +224,7 @@ export default function AdminCollectionsPage() {
                 ) : filteredShops.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={11} className="h-24 text-center text-xs text-muted-foreground">
-                      No collections found. Upload an Excel spreadsheet in Upload Center to process collections.
+                      No collections found. Upload an Excel spreadsheet in Upload Sale Details to process collections.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -236,9 +236,8 @@ export default function AdminCollectionsPage() {
                         {/* Shop Row (Parent) */}
                         <TableRow
                           onClick={() => toggleShop(shop.id)}
-                          className={`cursor-pointer transition-colors border-b border-border hover:bg-muted/40 ${
-                            isExpanded ? "bg-muted/25" : ""
-                          }`}
+                          className={`cursor-pointer transition-colors border-b border-border hover:bg-muted/40 ${isExpanded ? "bg-muted/25" : ""
+                            }`}
                         >
                           <TableCell className="p-2 text-center text-muted-foreground">
                             {isExpanded ? (

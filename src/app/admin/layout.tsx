@@ -17,6 +17,8 @@ import {
   getShopCollections,
 } from "@/lib/supabase/collections-service";
 
+import { UploadDraftProvider } from "@/lib/upload-draft-context";
+
 export default function AdminLayout({
   children,
 }: {
@@ -74,19 +76,21 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <AdminSidebar
-        isOpen={mobileMenuOpen}
-        onClose={() => setMobileMenuOpen(false)}
-      />
-
-      <div className="flex flex-1 flex-col min-w-0">
-        <TopNavbar
-          role="admin"
-          onOpenMobileMenu={() => setMobileMenuOpen(true)}
+    <UploadDraftProvider>
+      <div className="flex min-h-screen bg-background text-foreground">
+        <AdminSidebar
+          isOpen={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
         />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+
+        <div className="flex flex-1 flex-col min-w-0">
+          <TopNavbar
+            role="admin"
+            onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          />
+          <main className="flex-1 overflow-y-auto">{children}</main>
+        </div>
       </div>
-    </div>
+    </UploadDraftProvider>
   );
 }

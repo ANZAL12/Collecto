@@ -30,6 +30,9 @@ import {
   RotateCcw,
   SlidersHorizontal,
   AlertTriangle,
+  Check,
+  CheckCircle2,
+  CopyX,
 } from "lucide-react";
 
 interface UploadPreviewProps {
@@ -72,14 +75,60 @@ export function UploadPreview({
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedExecutive, setSelectedExecutive] = React.useState<string>("all");
   const [selectedCompany, setSelectedCompany] = React.useState<string>("all");
+  const [isDuplicatesOnly, setIsDuplicatesOnly] = React.useState(false);
 
   // Warnings filter state (controlled or local) - filters to unmapped shops needing an executive
   const [internalWarningsOnly, setInternalWarningsOnly] = React.useState(false);
   const isWarningsOnly = controlledWarningsOnly !== undefined ? controlledWarningsOnly : internalWarningsOnly;
 
+  // Track shop IDs in the warning review queue so they are NOT removed when solved
+  const [warningQueueShopIds, setWarningQueueShopIds] = React.useState<Set<string>>(new Set());
+  // Track order in which warnings were resolved so newly resolved items move to top
+  const [resolvedOrder, setResolvedOrder] = React.useState<string[]>([]);
+
+  // When warning mode is activated or collections change, keep the warning queue up to date
+  React.useEffect(() => {
+    if (isWarningsOnly) {
+      setWarningQueueShopIds((prev) => {
+        const next = new Set(prev);
+        for (const shop of collections) {
+          if (!shop.executiveName || shop.status === "unmapped") {
+            next.add(shop.id);
+          }
+        }
+        return next;
+      });
+    } else {
+      setWarningQueueShopIds(new Set());
+      setResolvedOrder([]);
+    }
+  }, [isWarningsOnly, collections]);
+
+  // Update resolved order when items in the warning queue get mapped
+  React.useEffect(() => {
+    if (!isWarningsOnly) return;
+    setResolvedOrder((prev) => {
+      const resolvedNow = collections
+        .filter((s) => warningQueueShopIds.has(s.id) && Boolean(s.executiveName) && s.status !== "unmapped")
+        .map((s) => s.id);
+
+      const existing = prev.filter((id) => resolvedNow.includes(id));
+      const newlyResolved = resolvedNow.filter((id) => !existing.includes(id));
+      const updated = [...newlyResolved, ...existing];
+      if (updated.length !== prev.length || updated.some((id, i) => id !== prev[i])) {
+        return updated;
+      }
+      return prev;
+    });
+  }, [collections, warningQueueShopIds, isWarningsOnly]);
+
   const handleToggleWarnings = (val: boolean) => {
     setInternalWarningsOnly(val);
     onToggleWarningsOnly?.(val);
+    if (!val) {
+      setWarningQueueShopIds(new Set());
+      setResolvedOrder([]);
+    }
   };
 
   // 3. Extract unique executive options with counts
@@ -128,17 +177,54 @@ export function UploadPreview({
     return { unmapped, total: unmapped };
   }, [collections]);
 
+  // 4c. Extract duplicate voucher counts across collections
+  const duplicateCount = React.useMemo(() => {
+    return collections.filter((shop) => shop.isDuplicateVoucher).length;
+  }, [collections]);
+
+  // Resolved warning items count
+  const resolvedWarningsCount = React.useMemo(() => {
+    return collections.filter(
+      (s) => warningQueueShopIds.has(s.id) && Boolean(s.executiveName) && s.status !== "unmapped"
+    ).length;
+  }, [collections, warningQueueShopIds]);
+
+  // Dismiss resolved warnings when admin clicks "Issue Resolved" button
+  const handleDismissResolved = () => {
+    setWarningQueueShopIds((prev) => {
+      const next = new Set(prev);
+      for (const shop of collections) {
+        if (Boolean(shop.executiveName) && shop.status !== "unmapped") {
+          next.delete(shop.id);
+        }
+      }
+      return next;
+    });
+    setResolvedOrder([]);
+
+    const remainingUnmapped = collections.filter((s) => !s.executiveName || s.status === "unmapped");
+    if (remainingUnmapped.length === 0) {
+      handleToggleWarnings(false);
+    }
+  };
+
   // 5. Apply filters & search
   const filteredCollections = React.useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const execFilter = selectedExecutive.trim().toLowerCase();
     const compFilter = selectedCompany.trim().toLowerCase();
 
-    return collections.filter((shop) => {
-      // Filter by warnings (unmapped shops)
+    const filtered = collections.filter((shop) => {
+      // Filter by duplicate vouchers
+      if (isDuplicatesOnly && !shop.isDuplicateVoucher) {
+        return false;
+      }
+
+      // Filter by warnings: include unmapped shops OR shops currently in the warning review queue
       if (isWarningsOnly) {
         const isUnmapped = !shop.executiveName || shop.status === "unmapped";
-        if (!isUnmapped) return false;
+        const isInWarningQueue = warningQueueShopIds.has(shop.id);
+        if (!isUnmapped && !isInWarningQueue) return false;
       }
 
       // Filter by executive
@@ -174,7 +260,26 @@ export function UploadPreview({
 
       return true;
     });
-  }, [collections, searchQuery, selectedExecutive, selectedCompany, isWarningsOnly]);
+
+    // When in warning review mode, move resolved warning shops to the TOP!
+    if (isWarningsOnly) {
+      return [...filtered].sort((a, b) => {
+        const aResolved = warningQueueShopIds.has(a.id) && Boolean(a.executiveName) && a.status !== "unmapped";
+        const bResolved = warningQueueShopIds.has(b.id) && Boolean(b.executiveName) && b.status !== "unmapped";
+
+        if (aResolved && !bResolved) return -1; // Resolved moves to top
+        if (!aResolved && bResolved) return 1;
+        if (aResolved && bResolved) {
+          const aIdx = resolvedOrder.indexOf(a.id);
+          const bIdx = resolvedOrder.indexOf(b.id);
+          if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        }
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [collections, searchQuery, selectedExecutive, selectedCompany, isWarningsOnly, warningQueueShopIds, resolvedOrder]);
 
   // 6. Pagination state (reset to page 1 whenever filters change)
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -229,11 +334,17 @@ export function UploadPreview({
     setSearchQuery("");
     setSelectedExecutive("all");
     setSelectedCompany("all");
+    setIsDuplicatesOnly(false);
+    handleToggleWarnings(false);
     setCurrentPage(1);
   };
 
   const isFilterActive =
-    searchQuery.trim() !== "" || selectedExecutive !== "all" || selectedCompany !== "all";
+    searchQuery.trim() !== "" ||
+    selectedExecutive !== "all" ||
+    selectedCompany !== "all" ||
+    isWarningsOnly ||
+    isDuplicatesOnly;
 
   // Filtered metrics
   const filteredTotalAmount = React.useMemo(() => {
@@ -244,9 +355,6 @@ export function UploadPreview({
     return filteredCollections.reduce((sum, c) => sum + (c.items?.length || 0), 0);
   }, [filteredCollections]);
 
-  const notUniqueCount = React.useMemo(() => {
-    return filteredCollections.filter((c) => c.isNotUnique).length;
-  }, [filteredCollections]);
 
   return (
     <Card className={className}>
@@ -354,8 +462,12 @@ export function UploadPreview({
             type="button"
             variant={isWarningsOnly ? "default" : "outline"}
             size="sm"
-            onClick={() => handleToggleWarnings(!isWarningsOnly)}
-            disabled={warningCounts.total === 0}
+            onClick={() => {
+              const nextVal = !isWarningsOnly;
+              handleToggleWarnings(nextVal);
+              if (nextVal) setIsDuplicatesOnly(false);
+            }}
+            disabled={warningCounts.total === 0 && resolvedWarningsCount === 0}
             className={cn(
               "h-8 px-2.5 text-xs font-mono gap-1.5 cursor-pointer transition-all shadow-2xs",
               isWarningsOnly
@@ -364,12 +476,51 @@ export function UploadPreview({
                 ? "border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
                 : "text-muted-foreground opacity-50 cursor-not-allowed"
             )}
-            title={warningCounts.total > 0 ? "Filter table to show only unmapped warning rows" : "No warnings (all shops mapped)"}
+            title={warningCounts.total > 0 ? "Filter table to show unmapped warning rows" : "No warnings (all shops mapped)"}
           >
             <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", isWarningsOnly ? "text-white" : "text-amber-500")} />
             <span>Warnings ({warningCounts.total})</span>
             {isWarningsOnly && <X className="h-3 w-3 ml-0.5" />}
           </Button>
+
+          {/* Duplicates Filter Toggle Button */}
+          {duplicateCount > 0 && (
+            <Button
+              type="button"
+              variant={isDuplicatesOnly ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                const nextVal = !isDuplicatesOnly;
+                setIsDuplicatesOnly(nextVal);
+                if (nextVal) handleToggleWarnings(false);
+              }}
+              className={cn(
+                "h-8 px-2.5 text-xs font-mono gap-1.5 cursor-pointer transition-all shadow-2xs",
+                isDuplicatesOnly
+                  ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-600 font-semibold ring-1 ring-rose-500/40"
+                  : "border-rose-500/40 text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20"
+              )}
+              title="Show duplicate voucher numbers that cannot be added again"
+            >
+              <CopyX className="h-3.5 w-3.5 shrink-0" />
+              <span>Duplicates ({duplicateCount})</span>
+              {isDuplicatesOnly && <X className="h-3 w-3 ml-0.5" />}
+            </Button>
+          )}
+
+          {/* Issue Resolved Button in Filter Bar */}
+          {resolvedWarningsCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleDismissResolved}
+              className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 shadow-2xs cursor-pointer animate-in fade-in"
+              title="Apply resolutions and remove solved warnings from this list"
+            >
+              <Check className="h-3.5 w-3.5" />
+              <span>Issue Resolved ({resolvedWarningsCount})</span>
+            </Button>
+          )}
 
           {/* Reset Filters Button */}
           {isFilterActive && (
@@ -387,32 +538,88 @@ export function UploadPreview({
         </div>
       </div>
 
-      {/* Warning Filter Active Banner */}
-      {isWarningsOnly && (
-        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
+      {/* Duplicates Filter Active Banner */}
+      {isDuplicatesOnly && (
+        <div className="px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900 dark:text-rose-300">
           <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <CopyX className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
             <span>
-              Showing <strong>{filteredCollections.length}</strong> unmapped {filteredCollections.length === 1 ? "shop (requires executive assignment)" : "shops (require executive assignment)"}
+              Showing <strong>{filteredCollections.length}</strong> duplicate {filteredCollections.length === 1 ? "voucher" : "vouchers"}. <em>Duplicates cannot be added again and will be skipped when saving.</em>
             </span>
           </div>
           <button
             type="button"
-            onClick={() => handleToggleWarnings(false)}
-            className="text-[11px] underline font-mono hover:text-amber-950 dark:hover:text-amber-100 cursor-pointer font-semibold"
+            onClick={() => setIsDuplicatesOnly(false)}
+            className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
           >
             Show All ({collections.length})
           </button>
         </div>
       )}
 
-      {/* Multi-Company Notice if applicable */}
-      {notUniqueCount > 0 && (
-        <div className="mx-4 mt-2.5 flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/20 p-2 text-xs text-blue-600 dark:text-blue-400">
-          <Info className="h-4 w-4 shrink-0" />
-          <span>
-            <strong>Multi-Company Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} registered across multiple companies.
-          </span>
+      {/* Duplicate Voucher Advisory Notice (when not in duplicates filter) */}
+      {duplicateCount > 0 && !isDuplicatesOnly && !isWarningsOnly && (
+        <div className="px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900 dark:text-rose-300">
+          <div className="flex items-center gap-2 font-medium">
+            <CopyX className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span>
+              <strong>Duplicate Notice:</strong> {duplicateCount} {duplicateCount === 1 ? "voucher already exists" : "vouchers already exist"} and cannot be added again. They will be skipped automatically on save.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsDuplicatesOnly(true);
+              handleToggleWarnings(false);
+            }}
+            className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
+          >
+            Review Duplicates ({duplicateCount})
+          </button>
+        </div>
+      )}
+
+      {/* Warning Filter Active Banner */}
+      {isWarningsOnly && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-300">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Warning Review Queue:{" "}
+              <strong>{filteredCollections.length}</strong> {filteredCollections.length === 1 ? "shop" : "shops"} (
+              {warningCounts.total > 0 ? (
+                <><strong>{warningCounts.total}</strong> pending assignment</>
+              ) : (
+                <span className="text-emerald-700 dark:text-emerald-300 font-semibold">all mapped!</span>
+              )}
+              {resolvedWarningsCount > 0 && (
+                <span className="text-emerald-700 dark:text-emerald-300 ml-1 font-semibold">
+                  • {resolvedWarningsCount} resolved (at top)
+                </span>
+              )}
+              )
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {resolvedWarningsCount > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleDismissResolved}
+                className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Issue Resolved ({resolvedWarningsCount})</span>
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleToggleWarnings(false)}
+              className="text-[11px] underline font-mono hover:text-amber-950 dark:hover:text-amber-100 cursor-pointer font-semibold"
+            >
+              Show All ({collections.length})
+            </button>
+          </div>
         </div>
       )}
 
@@ -458,6 +665,7 @@ export function UploadPreview({
                   const key = shop.id || `${shop.shopName}_${shop.invoiceNo}`;
                   const isExpanded = expandedShops.has(key);
                   const isUnmapped = !shop.executiveName || shop.status === "unmapped";
+                  const isResolvedWarning = isWarningsOnly && warningQueueShopIds.has(shop.id) && !isUnmapped;
                   const hasWarning = isUnmapped; // ONLY unmapped shops are warnings
 
                   return (
@@ -468,7 +676,9 @@ export function UploadPreview({
                         className={cn(
                           "cursor-pointer transition-colors border-b border-border hover:bg-muted/40",
                           isExpanded && "bg-muted/25",
-                          hasWarning && "bg-amber-500/[0.02]"
+                          hasWarning && "bg-amber-500/[0.04]",
+                          isResolvedWarning && "bg-emerald-500/[0.06] border-l-2 border-l-emerald-500",
+                          shop.isDuplicateVoucher && "bg-rose-500/[0.04] opacity-85"
                         )}
                       >
                         <TableCell className="p-2 text-center text-muted-foreground">
@@ -480,20 +690,53 @@ export function UploadPreview({
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
-                            {hasWarning && (
+                            {shop.isDuplicateVoucher ? (
+                              <span
+                                title={shop.duplicateReason || "Duplicate voucher: cannot be added again"}
+                                className="inline-flex items-center"
+                              >
+                                <CopyX className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                              </span>
+                            ) : isResolvedWarning ? (
+                              <span
+                                title="Issue resolved: Executive assigned. Click 'Issue Resolved' to apply and dismiss."
+                                className="inline-flex items-center"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              </span>
+                            ) : hasWarning ? (
                               <span
                                 title="Warning: Unmapped executive. Please assign an executive."
                                 className="inline-flex items-center"
                               >
                                 <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
                               </span>
-                            )}
+                            ) : null}
                             <span>{(currentPage - 1) * pageSize + index + 1}</span>
                           </span>
                         </TableCell>
                         <TableCell className="text-xs">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-foreground">{shop.shopName}</span>
+                            {shop.isDuplicateVoucher && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono px-1.5 py-0 bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40 font-semibold inline-flex items-center gap-1"
+                                title={shop.duplicateReason || "Duplicate voucher number - cannot be added again"}
+                              >
+                                <CopyX className="h-2.5 w-2.5" />
+                                Duplicate (Skipped)
+                              </Badge>
+                            )}
+                            {isResolvedWarning && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono px-1.5 py-0 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 font-semibold inline-flex items-center gap-1"
+                              >
+                                <Check className="h-2.5 w-2.5" />
+                                Resolved
+                              </Badge>
+                            )}
                             {shop.companyName && (
                               <Badge
                                 variant="outline"
@@ -503,15 +746,24 @@ export function UploadPreview({
                               </Badge>
                             )}
                           </div>
-                          {shop.uniquenessMessage && (
-                            <div className="mt-1 flex items-center gap-1 text-[10px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 max-w-fit">
-                              <Info className="h-2.5 w-2.5 shrink-0" />
-                              <span>{shop.uniquenessMessage}</span>
-                            </div>
-                          )}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {shop.invoiceNo}
+                        <TableCell className="font-mono text-xs">
+                          <div className="flex flex-col">
+                            <span
+                              className={cn(
+                                shop.isDuplicateVoucher
+                                  ? "line-through text-rose-600 dark:text-rose-400 font-semibold"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {shop.invoiceNo}
+                            </span>
+                            {shop.isDuplicateVoucher && (
+                              <span className="text-[9px] font-mono text-rose-500 font-medium">
+                                cannot add again
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs font-mono text-muted-foreground">
                           {shop.invoiceDate}
@@ -573,12 +825,14 @@ export function UploadPreview({
                             variant="outline"
                             className={cn(
                               "text-[10px] uppercase font-mono",
-                              shop.isExistingShop
+                              shop.isDuplicateVoucher
+                                ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-semibold"
+                                : shop.isExistingShop
                                 ? "bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                 : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-semibold"
                             )}
                           >
-                            {shop.isExistingShop ? "Registered" : "New Shop"}
+                            {shop.isDuplicateVoucher ? "Duplicate" : shop.isExistingShop ? "Registered" : "New Shop"}
                           </Badge>
                         </TableCell>
                       </TableRow>

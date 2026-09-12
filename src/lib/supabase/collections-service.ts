@@ -43,7 +43,14 @@ export async function saveParsedCollectionsToDb(
   collections: ShopCollection[],
   companyId?: string,
   companyName?: string
-): Promise<{ success: boolean; batchId?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  batchId?: string;
+  error?: string;
+  savedCount?: number;
+  skippedDuplicatesCount?: number;
+  message?: string;
+}> {
   if (!isSupabaseConfigured()) {
     return { success: false, error: "Database not configured. Please check your Supabase credentials in .env.local" };
   }
@@ -55,7 +62,69 @@ export async function saveParsedCollectionsToDb(
     const validCollections = collections.filter(
       (c) => !isCancelledOrInvalidShop(c.shopName)
     );
-    const totalItems = validCollections.reduce((acc, c) => acc + c.items.length, 0);
+
+    // 0. DUPLICATE VOUCHER CHECK:
+    // Collect all voucher / invoice numbers from validCollections to check against existing DB records
+    const invoiceNosToCheck = Array.from(
+      new Set(
+        validCollections
+          .map((c) => c.invoiceNo?.trim())
+          .filter((v): v is string => Boolean(v && v !== "-"))
+      )
+    );
+
+    const existingInvoicesInDb = new Set<string>();
+
+    for (let i = 0; i < invoiceNosToCheck.length; i += 200) {
+      const chunk = invoiceNosToCheck.slice(i, i + 200);
+      const { data: existingRows } = await supabase
+        .from("shop_collections")
+        .select("invoice_no")
+        .in("invoice_no", chunk);
+
+      if (existingRows) {
+        for (const row of existingRows) {
+          if (row.invoice_no) {
+            existingInvoicesInDb.add(row.invoice_no.trim().toLowerCase());
+          }
+        }
+      }
+    }
+
+    // Filter out collections whose voucher numbers already exist in DB or are duplicated within this batch
+    const seenInBatch = new Set<string>();
+    const collectionsToInsert: ShopCollection[] = [];
+    let skippedDuplicatesCount = 0;
+
+    for (const shop of validCollections) {
+      const normInv = shop.invoiceNo?.trim().toLowerCase();
+      if (normInv && normInv !== "-") {
+        if (existingInvoicesInDb.has(normInv)) {
+          console.warn(`[Deduplication] Voucher "${shop.invoiceNo}" already exists in database. Cannot be added again.`);
+          skippedDuplicatesCount++;
+          continue;
+        }
+        if (seenInBatch.has(normInv)) {
+          console.warn(`[Deduplication] Voucher "${shop.invoiceNo}" duplicate within current upload. Cannot be added again.`);
+          skippedDuplicatesCount++;
+          continue;
+        }
+        seenInBatch.add(normInv);
+      }
+      collectionsToInsert.push(shop);
+    }
+
+    // If ALL collections in this file are duplicates, block insertion
+    if (collectionsToInsert.length === 0) {
+      return {
+        success: false,
+        error: `All ${validCollections.length} voucher(s) in this file have already been added previously. Duplicates cannot be added again.`,
+        skippedDuplicatesCount,
+        savedCount: 0,
+      };
+    }
+
+    const totalItems = collectionsToInsert.reduce((acc, c) => acc + c.items.length, 0);
 
     // Guard against rapid duplicate clicks (within 60 seconds for the same filename and item count)
     const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString();
@@ -85,7 +154,7 @@ export async function saveParsedCollectionsToDb(
       company_name: companyName || null,
       brand_id: companyId || null,
       brand_name: companyName || null,
-      total_shops: validCollections.length,
+      total_shops: collectionsToInsert.length,
       total_items: totalItems,
     };
 
@@ -106,7 +175,7 @@ export async function saveParsedCollectionsToDb(
           file_name: fileName,
           company_id: companyId || null,
           company_name: companyName || null,
-          total_shops: validCollections.length,
+          total_shops: collectionsToInsert.length,
           total_items: totalItems,
         })
         .select("id")
@@ -128,9 +197,9 @@ export async function saveParsedCollectionsToDb(
     // Fetch all executives to resolve executive IDs when persisting mappings
     const { data: allExecs } = await supabase.from("executives").select("id, name");
 
-    // 2. Process each parent shop collection:
+    // 2. Process each non-duplicate parent shop collection:
     // Ensure all shops exist in `shops` table and `shop_mappings`
-    for (const shop of validCollections) {
+    for (const shop of collectionsToInsert) {
       const cleanShopName = shop.shopName.trim();
       if (isCancelledOrInvalidShop(cleanShopName)) {
         continue;
@@ -342,7 +411,15 @@ export async function saveParsedCollectionsToDb(
       }
     }
 
-    return { success: true, batchId };
+    return {
+      success: true,
+      batchId,
+      savedCount: collectionsToInsert.length,
+      skippedDuplicatesCount,
+      message: skippedDuplicatesCount > 0
+        ? `Successfully saved ${collectionsToInsert.length} collections. ${skippedDuplicatesCount} duplicate voucher(s) were skipped and not added again.`
+        : undefined,
+    };
   } catch (err: any) {
     console.error("Database save exception:", err);
     return { success: false, error: err.message || "Unknown error" };

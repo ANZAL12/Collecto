@@ -30,6 +30,7 @@ import {
   useShops,
   useCompanies,
   useExecutives,
+  useShopCollections,
 } from "@/lib/hooks/use-queries";
 import {
   RotateCcw,
@@ -43,29 +44,43 @@ import {
   UploadCloud,
   Building2,
   Info,
+  Sparkles,
 } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { CompanySelectBar } from "@/components/upload/company-select-bar";
 import { CompanyManagerDialog } from "@/components/upload/company-manager-dialog";
 import { Company } from "@/types";
 import { cn } from "@/lib/utils";
+import { useUploadDraft } from "@/lib/upload-draft-context";
 
 export default function AdminDashboardPage() {
-  // In-page selection between Parser 1 (Original) and Parser 2 (Sales Register)
-  const [activeParser, setActiveParser] = React.useState<"parser1" | "parser2">("parser1");
+  const {
+    validationResult,
+    setValidationResult,
+    draftFile,
+    setDraftFile,
+    activeParser,
+    setActiveParser,
+    selectedCompany,
+    setSelectedCompany,
+    showWarningsOnly,
+    setShowWarningsOnly,
+    isCommitted,
+    setIsCommitted,
+    updateShopExecutive: handleUpdateShopExecutive,
+    clearDraft,
+  } = useUploadDraft();
 
-  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
-  const [selectedCompany, setSelectedCompany] = React.useState<Company | null>(null);
+  const selectedFile = draftFile;
+  const setSelectedFile = setDraftFile;
+
   const [showCompanyManager, setShowCompanyManager] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
-  const [validationResult, setValidationResult] = React.useState<ExcelValidationResult | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [isCommitted, setIsCommitted] = React.useState(false);
   const [deletingBatchId, setDeletingBatchId] = React.useState<string | null>(null);
   const [editingBatchId, setEditingBatchId] = React.useState<string | null>(null);
   const [editingBatchName, setEditingBatchName] = React.useState("");
   const [savingBatchNameId, setSavingBatchNameId] = React.useState<string | null>(null);
-  const [showWarningsOnly, setShowWarningsOnly] = React.useState(false);
 
   // Pagination state for recent uploads
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -75,28 +90,47 @@ export default function AdminDashboardPage() {
   const { data: existingShops = [] } = useShops();
   const { data: companies = [] } = useCompanies();
   const { data: executives = [] } = useExecutives();
+  const { data: existingCollections = [] } = useShopCollections();
   const saveCollectionsMutation = useSaveCollectionsMutation();
   const deleteBatchMutation = useDeleteUploadBatchMutation();
   const updateFileNameMutation = useUpdateUploadBatchFileNameMutation();
 
-  const handleUpdateShopExecutive = (shopId: string, newExecutiveName: string | undefined) => {
-    setValidationResult((prev) => {
-      if (!prev) return prev;
+  // Enrich parsed collections with duplicate voucher detection against existing DB records and within file
+  const collectionsWithDuplicateFlags = React.useMemo(() => {
+    if (!validationResult?.collections) return [];
+
+    const dbVouchers = new Set(
+      existingCollections
+        .map((c) => c.invoiceNo?.trim().toLowerCase())
+        .filter((v): v is string => Boolean(v && v !== "-"))
+    );
+
+    const seenInBatch = new Set<string>();
+
+    return validationResult.collections.map((shop) => {
+      const v = shop.invoiceNo?.trim().toLowerCase();
+      let isDuplicateVoucher = Boolean(shop.isDuplicateVoucher);
+      let duplicateReason = shop.duplicateReason;
+
+      if (v && v !== "-") {
+        if (dbVouchers.has(v)) {
+          isDuplicateVoucher = true;
+          duplicateReason = `Voucher "${shop.invoiceNo}" already exists in database (cannot be added again)`;
+        } else if (seenInBatch.has(v)) {
+          isDuplicateVoucher = true;
+          duplicateReason = `Duplicate voucher "${shop.invoiceNo}" in file (only first occurrence will be added)`;
+        } else {
+          seenInBatch.add(v);
+        }
+      }
+
       return {
-        ...prev,
-        collections: prev.collections.map((col) => {
-          if (col.id === shopId) {
-            return {
-              ...col,
-              executiveName: newExecutiveName,
-              status: newExecutiveName ? "mapped" : "unmapped",
-            };
-          }
-          return col;
-        }),
+        ...shop,
+        isDuplicateVoucher,
+        duplicateReason,
       };
     });
-  };
+  }, [validationResult?.collections, existingCollections]);
 
   // Read URL query param to activate parser2 if routed with ?parser=2
   React.useEffect(() => {
@@ -150,9 +184,7 @@ export default function AdminDashboardPage() {
   const handleSwitchParser = (mode: "parser1" | "parser2") => {
     if (isSaving) return;
     setActiveParser(mode);
-    setSelectedFile(null);
-    setValidationResult(null);
-    setIsCommitted(false);
+    clearDraft();
     lastParsedKeyRef.current = "";
 
     if (mode === "parser2") {
@@ -232,8 +264,18 @@ export default function AdminDashboardPage() {
     await executeParsing(file, activeParser, selectedCompany);
   };
 
+  const isFirstMountRef = React.useRef(true);
+
   // Re-match against registered shops if target company changes while file is selected
   React.useEffect(() => {
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      if (selectedFile) {
+        lastParsedKeyRef.current = `${selectedFile.name}-${selectedFile.size}-${activeParser}-${selectedCompany?.id}`;
+      }
+      return;
+    }
+
     if (selectedFile && !isCommitted && !isProcessing) {
       const key = `${selectedFile.name}-${selectedFile.size}-${activeParser}-${selectedCompany?.id}`;
       if (lastParsedKeyRef.current !== key) {
@@ -245,10 +287,7 @@ export default function AdminDashboardPage() {
 
   const handleReset = () => {
     if (isSaving) return;
-    setSelectedFile(null);
-    setValidationResult(null);
-    setIsCommitted(false);
-    setShowWarningsOnly(false);
+    clearDraft();
     lastParsedKeyRef.current = "";
   };
 
@@ -270,12 +309,24 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    // Check if ALL collections are duplicate vouchers
+    const nonDuplicateCollections = collectionsWithDuplicateFlags.filter(
+      (c) => !c.isDuplicateVoucher
+    );
+
+    if (nonDuplicateCollections.length === 0 && collectionsWithDuplicateFlags.length > 0) {
+      alert(
+        "All collections in this preview are duplicate vouchers that already exist in the database. Duplicates cannot be added again."
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       const isFiltered = targetCompany && targetCompany.id !== "ALL";
       const res = await saveCollectionsMutation.mutateAsync({
         fileName: validationResult.fileName,
-        collections: validationResult.collections,
+        collections: collectionsWithDuplicateFlags,
         companyId: isFiltered ? targetCompany?.id : undefined,
         companyName: isFiltered ? targetCompany?.name : undefined,
       });
@@ -284,7 +335,15 @@ export default function AdminDashboardPage() {
         alert(res.error || "Failed to process collections");
         return;
       }
+
+      if (res.skippedDuplicatesCount && res.skippedDuplicatesCount > 0) {
+        alert(
+          `Success: ${res.savedCount || nonDuplicateCollections.length} new collections saved.\n${res.skippedDuplicatesCount} duplicate voucher(s) were skipped and not added again.`
+        );
+      }
+
       setIsCommitted(true);
+      clearDraft();
     } catch (err: any) {
       alert("Error saving collections: " + (err.message || "Unknown error"));
     } finally {
@@ -447,7 +506,7 @@ export default function AdminDashboardPage() {
           />
 
           <UploadPreview
-            collections={validationResult.collections}
+            collections={collectionsWithDuplicateFlags}
             executives={executives}
             onUpdateShopExecutive={handleUpdateShopExecutive}
             showWarningsOnly={showWarningsOnly}

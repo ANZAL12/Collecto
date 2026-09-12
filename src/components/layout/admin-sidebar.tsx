@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NavItem } from "@/types";
+import { useUploadDraft } from "@/lib/upload-draft-context";
 
 export const adminNavItems: NavItem[] = [
   {
@@ -68,6 +69,11 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) {
   const pathname = usePathname();
+  let hasUploadDraft = false;
+  try {
+    const draft = useUploadDraft();
+    hasUploadDraft = draft.hasDraft;
+  } catch {}
 
   return (
     <>
@@ -136,11 +142,15 @@ export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) 
                     <span className="truncate">{item.title}</span>
                   </div>
 
-                  {item.badge && (
+                  {item.href === "/admin/dashboard" && hasUploadDraft ? (
+                    <span className="flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 text-[10px] font-semibold font-mono text-amber-600 dark:text-amber-400 animate-pulse">
+                      Draft
+                    </span>
+                  ) : item.badge ? (
                     <span className="rounded border border-border px-1 text-[10px] font-mono text-muted-foreground">
                       {item.badge}
                     </span>
-                  )}
+                  ) : null}
                 </Link>
               );
             })}

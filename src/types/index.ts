@@ -104,6 +104,8 @@ export interface ShopCollection {
   isExistingShop?: boolean;
   isNotUnique?: boolean;
   uniquenessMessage?: string;
+  isDuplicateVoucher?: boolean;
+  duplicateReason?: string;
   uploadBatch?: string;
   isPaid?: boolean;
   items: CollectionItem[];

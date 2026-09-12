@@ -441,6 +441,7 @@ export async function simulateParseExcelFile(
     }
 
     const collections: ShopCollection[] = [];
+    const seenVouchersInFile = new Set<string>();
     let currentShop: ShopCollection | null = null;
     let isCurrentInvoiceSkipped = false;
 
@@ -531,6 +532,12 @@ export async function simulateParseExcelFile(
           : particularsCell.trim();
         const assignedExec = isExisting ? shopMatch!.assignedExecutive : undefined;
 
+        const vKey = (voucherNoCell || "").trim().toLowerCase();
+        const isDupInFile = vKey !== "" && vKey !== "-" && seenVouchersInFile.has(vKey);
+        if (vKey !== "" && vKey !== "-") {
+          seenVouchersInFile.add(vKey);
+        }
+
         currentShop = {
           id: `col-${collections.length + 1}`,
           shopName: canonicalName,
@@ -548,6 +555,8 @@ export async function simulateParseExcelFile(
           isExistingShop: isExisting,
           isNotUnique: shopMatch?.isNotUnique,
           uniquenessMessage: shopMatch?.uniquenessMessage,
+          isDuplicateVoucher: isDupInFile,
+          duplicateReason: isDupInFile ? `Duplicate voucher "${voucherNoCell}" in file (cannot be added again)` : undefined,
           items: [],
         };
         collections.push(currentShop);
@@ -792,6 +801,7 @@ export async function parseSalesRegisterExcelFile(
     }
 
     const collections: ShopCollection[] = [];
+    const seenVouchersInFile = new Set<string>();
     let currentShop: ShopCollection | null = null;
     let isCurrentInvoiceSkipped = false;
 
@@ -892,6 +902,12 @@ export async function parseSalesRegisterExcelFile(
         // Total collection amount from Gross Total (falling back to Value)
         const totalAmount = grossNum > 0 ? grossNum : valueNum;
 
+        const vKey = (voucherNoCell || "").trim().toLowerCase();
+        const isDupInFile = vKey !== "" && vKey !== "-" && seenVouchersInFile.has(vKey);
+        if (vKey !== "" && vKey !== "-") {
+          seenVouchersInFile.add(vKey);
+        }
+
         currentShop = {
           id: `sr-${collections.length + 1}`,
           shopName: canonicalName,
@@ -909,6 +925,8 @@ export async function parseSalesRegisterExcelFile(
           isExistingShop: isExisting,
           isNotUnique: shopMatch?.isNotUnique,
           uniquenessMessage: shopMatch?.uniquenessMessage,
+          isDuplicateVoucher: isDupInFile,
+          duplicateReason: isDupInFile ? `Duplicate voucher "${voucherNoCell}" in file (cannot be added again)` : undefined,
           items: [],
         };
         collections.push(currentShop);

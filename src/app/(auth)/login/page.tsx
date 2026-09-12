@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { authenticate } from "@/lib/auth-service";
 import { useExecutives } from "@/lib/hooks/use-queries";
 import { UserSession } from "@/types";
+import { isDesktopApp } from "@/lib/desktop-utils";
 
 interface LoginPageProps {
   onLoginSuccess?: (session: UserSession) => void;
@@ -34,6 +35,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
       const result = await authenticate(username, password);
 
       if (result.success && result.session) {
+        if (result.session.role === "admin" && !isDesktopApp()) {
+          setError("Admin access is restricted to the desktop application.");
+          return;
+        }
+
         if (onLoginSuccess) {
           onLoginSuccess(result.session);
         }
@@ -95,7 +101,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
                   id="username"
                   type="text"
                   required
-                  placeholder="e.g. rajesh or admin"
+                  placeholder="Enter your username"
                   value={username}
                   onChange={(e) => {
                     setError(null);
@@ -135,10 +141,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
 
-              <div className="text-[11px] font-mono text-muted-foreground text-center space-y-0.5 pt-1 border-t border-border/50 w-full">
-                <div>Admin: <strong>admin</strong> / <strong>123</strong></div>
-                <div>Executive default: <strong>username</strong> / <strong>password123</strong></div>
-              </div>
+              <p className="text-[11px] text-muted-foreground text-center pt-1 border-t border-border/50 w-full">
+                Forgot password? Contact admin
+              </p>
             </CardFooter>
           </form>
         </Card>

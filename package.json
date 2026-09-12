@@ -1,12 +1,19 @@
 {
   "name": "collecto",
   "version": "0.1.0",
+  "description": "Collecto Operations Platform - Admin Desktop & Field Collections",
+  "author": "Collecto",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "electron": "electron .",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on -t 30000 http-get://127.0.0.1:3000 && electron .\"",
+    "electron:pack": "electron-builder --dir",
+    "electron:dist": "electron-builder"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -30,9 +37,14 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.1.0"
   }
 }

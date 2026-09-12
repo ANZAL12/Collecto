@@ -29,6 +29,7 @@ import { ShopCollection, UserSession, CollectionItem } from "@/types";
 import { LogOut } from "lucide-react";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
 import { parseInvoiceMonth, getAvailableInvoiceMonths } from "@/lib/date-utils";
+import { isDesktopApp } from "@/lib/desktop-utils";
 
 export interface ShopCardData {
   name: string;
@@ -352,8 +353,8 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-md mx-auto px-4 py-4 space-y-3">
-        {/* Admin Executive Switcher (Only visible to Admin) */}
-        {isAdmin && (
+        {/* Admin Executive Switcher (Only visible to Admin on Desktop App) */}
+        {isAdmin && isDesktopApp() && (
           <div className="flex items-center justify-between bg-muted/60 border border-border rounded-xl px-3 py-2 text-xs">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-mono text-muted-foreground">Previewing:</span>

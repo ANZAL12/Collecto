@@ -254,9 +254,7 @@ export default function AdminDashboardPage() {
         fileName: validationResult.fileName,
         collections: validationResult.collections,
         companyId: isFiltered ? targetCompany?.id : undefined,
-        companyName: isFiltered
-          ? targetCompany?.name
-          : (activeParser === "parser2" ? "Sales Register (Multi-Company)" : undefined),
+        companyName: isFiltered ? targetCompany?.name : undefined,
       });
 
       if (!res.success) {

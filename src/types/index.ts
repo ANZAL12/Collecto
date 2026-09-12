@@ -27,6 +27,7 @@ export interface Executive {
   name: string;
   username?: string;
   password?: string;
+  companies?: string[];
 }
 
 /**

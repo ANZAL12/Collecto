@@ -53,17 +53,29 @@ export default function AdminExecutivesPage() {
     });
   }, [executives, selectedCompanyFilter, companiesMap]);
 
-  const handleAddExecutive = async (data: { name: string; username: string; password: string }) => {
+  const handleAddExecutive = async (data: {
+    name: string;
+    username: string;
+    password: string;
+    companies?: string[];
+  }) => {
     await addExecutiveMutation.mutateAsync(data);
     setShowAddForm(false);
   };
 
-  const handleUpdateCredentials = async (data: { name: string; username: string; password: string; oldPassword?: string }) => {
+  const handleUpdateCredentials = async (data: {
+    name: string;
+    username: string;
+    password: string;
+    oldPassword?: string;
+    companies?: string[];
+  }) => {
     await updateCredsMutation.mutateAsync({
       name: data.name,
       username: data.username,
       password: data.password,
       oldPassword: data.oldPassword,
+      companies: data.companies,
     });
     setEditingExecutive(null);
   };
@@ -110,35 +122,34 @@ export default function AdminExecutivesPage() {
             size="sm"
             onClick={() => {
               setEditingExecutive(null);
-              setShowAddForm(!showAddForm);
+              setShowAddForm(true);
             }}
             className="h-8 text-xs font-medium"
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
-            {showAddForm ? "Close Form" : "Add Executive"}
+            Add Executive
           </Button>
         </div>
       }
     >
-      {showAddForm && (
-        <div className="flex justify-center mb-3">
+      {(showAddForm || editingExecutive) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
           <ExecutiveForm
-            onClose={() => setShowAddForm(false)}
-            onSubmit={handleAddExecutive}
-          />
-        </div>
-      )}
-
-      {editingExecutive && (
-        <div className="flex justify-center mb-3">
-          <ExecutiveForm
-            initialData={{
-              name: editingExecutive.name,
-              username: editingExecutive.username,
-              password: editingExecutive.password,
+            initialData={
+              editingExecutive
+                ? {
+                    name: editingExecutive.name,
+                    username: editingExecutive.username,
+                    password: editingExecutive.password,
+                    companies: companiesMap.get(editingExecutive.name.trim().toLowerCase()) || [],
+                  }
+                : undefined
+            }
+            onClose={() => {
+              setShowAddForm(false);
+              setEditingExecutive(null);
             }}
-            onClose={() => setEditingExecutive(null)}
-            onSubmit={handleUpdateCredentials}
+            onSubmit={editingExecutive ? handleUpdateCredentials : handleAddExecutive}
           />
         </div>
       )}

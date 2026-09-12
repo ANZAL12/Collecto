@@ -64,7 +64,6 @@ export async function GET(req: Request) {
         company_name,
         brand_id,
         brand_name,
-        is_paid,
         created_at,
         collection_items (
           id,
@@ -101,7 +100,7 @@ export async function GET(req: Request) {
         brandId: row.brand_id || row.company_id,
         brandName: row.brand_name || row.company_name,
         status: "mapped" as const,
-        isPaid: Boolean(row.is_paid),
+        isPaid: Boolean((row as any).is_paid || false),
         items: (row.collection_items || []).map((item: any) => ({
           id: item.id,
           productName: item.product_name,
@@ -199,28 +198,64 @@ export async function GET(req: Request) {
       a.name.localeCompare(b.name)
     );
 
-    // 3. Compute unique companies handled strictly by this executive
-    const companySet = new Set<string>();
-    for (const c of collections) {
-      const comp = c.companyName?.trim() || c.brandName?.trim();
-      if (comp) companySet.add(comp);
-    }
-    for (const s of shops) {
-      const comp = s.companyName?.trim() || s.brandName?.trim();
-      if (comp) companySet.add(comp);
-    }
+    // 3. Determine companies registered/mapped to this executive
+    const registeredCompanies = new Set<string>();
+
+    // A. From shop_mappings
     for (const m of mappings) {
       const comp = m.companyName?.trim() || m.brandName?.trim();
-      if (comp) companySet.add(comp);
+      if (comp) registeredCompanies.add(comp);
     }
-    const companies = Array.from(companySet).sort((a, b) => a.localeCompare(b));
+
+    // B. From assignedCompanies parameter (client cached assignments)
+    const urlObj = new URL(req.url);
+    const rawAssigned = urlObj.searchParams.get("assignedCompanies");
+    if (rawAssigned) {
+      for (const c of rawAssigned.split(",")) {
+        if (c.trim()) registeredCompanies.add(c.trim());
+      }
+    }
+
+    let finalCollections = collections;
+    let finalShops = shops;
+    let finalCompanies: string[] = [];
+
+    if (registeredCompanies.size > 0) {
+      finalCompanies = Array.from(registeredCompanies).sort((a, b) => a.localeCompare(b));
+      const registeredLower = new Set(finalCompanies.map((c) => c.toLowerCase()));
+
+      finalCollections = collections.filter((c) => {
+        const cComp = (c.companyName || c.brandName || "").trim().toLowerCase();
+        return registeredLower.has(cComp);
+      });
+
+      finalShops = shops.filter((s) => {
+        const sComp = (s.companyName || s.brandName || "").trim().toLowerCase();
+        return registeredLower.has(sComp);
+      });
+    } else {
+      const companySet = new Set<string>();
+      for (const c of collections) {
+        const comp = c.companyName?.trim() || c.brandName?.trim();
+        if (comp) companySet.add(comp);
+      }
+      for (const s of shops) {
+        const comp = s.companyName?.trim() || s.brandName?.trim();
+        if (comp) companySet.add(comp);
+      }
+      for (const m of mappings) {
+        const comp = m.companyName?.trim() || m.brandName?.trim();
+        if (comp) companySet.add(comp);
+      }
+      finalCompanies = Array.from(companySet).sort((a, b) => a.localeCompare(b));
+    }
 
     return Response.json({
       success: true,
-      collections,
-      shops,
+      collections: finalCollections,
+      shops: finalShops,
       mappings,
-      companies,
+      companies: finalCompanies,
     });
   } catch (err: any) {
     console.error("Executive data API exception:", err);

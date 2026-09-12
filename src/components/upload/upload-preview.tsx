@@ -14,9 +14,22 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { ChevronDown, ChevronRight, ChevronsUpDown, Package, AlertTriangle, Info } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
+  Package,
+  Info,
+  Search,
+  User,
+  Building2,
+  X,
+  RotateCcw,
+  SlidersHorizontal,
+} from "lucide-react";
 
 interface UploadPreviewProps {
   collections?: ShopCollection[];
@@ -31,6 +44,7 @@ export function UploadPreview({
   groupedShops,
   className,
 }: UploadPreviewProps) {
+  // 1. Raw collections list
   const collections: ShopCollection[] = React.useMemo(() => {
     let list: ShopCollection[] = [];
     if (directCollections && directCollections.length > 0) list = directCollections;
@@ -45,25 +59,109 @@ export function UploadPreview({
     );
   }, [directCollections, groupedShops, rows]);
 
-  // Pagination state
+  // 2. Filter states
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [selectedExecutive, setSelectedExecutive] = React.useState<string>("all");
+  const [selectedCompany, setSelectedCompany] = React.useState<string>("all");
+
+  // 3. Extract unique executive options with counts
+  const executiveOptions = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    let unmappedCount = 0;
+
+    for (const c of collections) {
+      const name = c.executiveName?.trim();
+      if (name) {
+        counts.set(name, (counts.get(name) || 0) + 1);
+      } else {
+        unmappedCount++;
+      }
+    }
+
+    const list = Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { list, unmappedCount };
+  }, [collections]);
+
+  // 4. Extract unique company options with counts
+  const companyOptions = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of collections) {
+      const comp = c.companyName?.trim() || c.brandName?.trim();
+      if (comp) {
+        counts.set(comp, (counts.get(comp) || 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [collections]);
+
+  // 5. Apply filters & search
+  const filteredCollections = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const execFilter = selectedExecutive.trim().toLowerCase();
+    const compFilter = selectedCompany.trim().toLowerCase();
+
+    return collections.filter((shop) => {
+      // Filter by executive
+      if (execFilter !== "all") {
+        if (execFilter === "unmapped") {
+          if (shop.executiveName) return false;
+        } else {
+          if (!shop.executiveName || shop.executiveName.trim().toLowerCase() !== execFilter) {
+            return false;
+          }
+        }
+      }
+
+      // Filter by company / brand
+      if (compFilter !== "all") {
+        const cName = (shop.companyName || shop.brandName || "").trim().toLowerCase();
+        if (cName !== compFilter) return false;
+      }
+
+      // Search query across shop name, invoice no, GSTIN, executive, brand, and item names
+      if (q) {
+        const matchShop = shop.shopName?.toLowerCase().includes(q);
+        const matchInv = shop.invoiceNo?.toLowerCase().includes(q);
+        const matchGst = shop.gstinUin?.toLowerCase().includes(q);
+        const matchExec = shop.executiveName?.toLowerCase().includes(q);
+        const matchComp = (shop.companyName || shop.brandName || "").toLowerCase().includes(q);
+        const matchItems = shop.items?.some((it) => it.productName?.toLowerCase().includes(q));
+
+        if (!matchShop && !matchInv && !matchGst && !matchExec && !matchComp && !matchItems) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [collections, searchQuery, selectedExecutive, selectedCompany]);
+
+  // 6. Pagination state (reset to page 1 whenever filters change)
   const [currentPage, setCurrentPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedExecutive, selectedCompany]);
+
   const paginatedCollections = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return collections.slice(start, start + pageSize);
-  }, [collections, currentPage, pageSize]);
+    return filteredCollections.slice(start, start + pageSize);
+  }, [filteredCollections, currentPage, pageSize]);
 
-  // Track expanded state for each parent shop row
+  // 7. Track expanded state for accordion rows
   const [expandedShops, setExpandedShops] = React.useState<Set<string>>(() => {
-    // Default: expand all so user immediately sees their items
     return new Set(collections.map((c) => c.id || `${c.shopName}_${c.invoiceNo}`));
   });
 
   // Keep expanded set updated when collections change
   React.useEffect(() => {
     setExpandedShops(new Set(collections.map((c) => c.id || `${c.shopName}_${c.invoiceNo}`)));
-    setCurrentPage(1);
   }, [collections]);
 
   const toggleShop = (key: string) => {
@@ -78,61 +176,171 @@ export function UploadPreview({
     });
   };
 
-  const areAllExpanded = collections.length > 0 && expandedShops.size === collections.length;
+  const areAllExpanded =
+    filteredCollections.length > 0 &&
+    filteredCollections.every((c) => expandedShops.has(c.id || `${c.shopName}_${c.invoiceNo}`));
 
   const toggleExpandAll = () => {
     if (areAllExpanded) {
       setExpandedShops(new Set());
     } else {
-      setExpandedShops(new Set(collections.map((c) => c.id || `${c.shopName}_${c.invoiceNo}`)));
+      setExpandedShops(
+        new Set(filteredCollections.map((c) => c.id || `${c.shopName}_${c.invoiceNo}`))
+      );
     }
   };
 
-  const totalAmount = React.useMemo(() => {
-    return collections.reduce((sum, c) => sum + (Number(c.totalAmount) || 0), 0);
-  }, [collections]);
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedExecutive("all");
+    setSelectedCompany("all");
+    setCurrentPage(1);
+  };
 
-  const totalItems = React.useMemo(() => {
-    return collections.reduce((sum, c) => sum + (c.items?.length || 0), 0);
-  }, [collections]);
+  const isFilterActive =
+    searchQuery.trim() !== "" || selectedExecutive !== "all" || selectedCompany !== "all";
+
+  // Filtered metrics
+  const filteredTotalAmount = React.useMemo(() => {
+    return filteredCollections.reduce((sum, c) => sum + (Number(c.totalAmount) || 0), 0);
+  }, [filteredCollections]);
+
+  const filteredTotalItems = React.useMemo(() => {
+    return filteredCollections.reduce((sum, c) => sum + (c.items?.length || 0), 0);
+  }, [filteredCollections]);
 
   const notUniqueCount = React.useMemo(() => {
-    return collections.filter((c) => c.isNotUnique).length;
-  }, [collections]);
+    return filteredCollections.filter((c) => c.isNotUnique).length;
+  }, [filteredCollections]);
 
   return (
     <Card className={className}>
-      <CardHeader className="py-2.5 px-4 border-b border-border flex flex-row items-center justify-between">
+      {/* Header */}
+      <CardHeader className="py-2.5 px-4 border-b border-border flex flex-row items-center justify-between flex-wrap gap-2">
         <div>
-          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Parsed Shop Collections ({collections.length} Shops • {totalItems} Items • Total: {formatCurrency(totalAmount)})
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <span>Parsed Sales Preview</span>
+            <span className="text-foreground font-bold">
+              ({filteredCollections.length}{isFilterActive ? ` of ${collections.length}` : ""} Shops • {filteredTotalItems} Items • Total: {formatCurrency(filteredTotalAmount)})
+            </span>
           </CardTitle>
           <p className="text-[11px] text-muted-foreground">
-            Shops are parent records. Expand each shop row to view its child item list.
+            Shops are parent records with assigned executives. Expand each shop row to view its itemized products.
           </p>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={toggleExpandAll}
-          className="h-7 px-2.5 text-xs font-mono gap-1"
-        >
-          <ChevronsUpDown className="h-3.5 w-3.5" />
-          {areAllExpanded ? "Collapse All" : "Expand All"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleExpandAll}
+            disabled={filteredCollections.length === 0}
+            className="h-7 px-2.5 text-xs font-mono gap-1 cursor-pointer"
+          >
+            <ChevronsUpDown className="h-3.5 w-3.5" />
+            {areAllExpanded ? "Collapse All" : "Expand All"}
+          </Button>
+        </div>
       </CardHeader>
 
+      {/* Search & Executive / Brand Filter Bar */}
+      <div className="px-4 py-2 bg-muted/20 border-b border-border flex flex-wrap items-center justify-between gap-2">
+        {/* Search Input */}
+        <div className="flex items-center gap-2 flex-1 min-w-[220px] max-w-sm relative">
+          <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
+          <Input
+            placeholder="Search shop, invoice no, GST, product..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 pl-8 pr-7 text-xs bg-background"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer p-0.5"
+              title="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filters Group */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Executive Filter Dropdown */}
+          <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2.5 py-1 shadow-2xs">
+            <User className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-[11px] text-muted-foreground font-medium shrink-0">Executive:</span>
+            <select
+              value={selectedExecutive}
+              onChange={(e) => setSelectedExecutive(e.target.value)}
+              className="text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+              aria-label="Filter by executive"
+            >
+              <option value="all">All Executives ({collections.length})</option>
+              {executiveOptions.list.map((ex) => (
+                <option key={ex.name} value={ex.name}>
+                  {ex.name} ({ex.count} shops)
+                </option>
+              ))}
+              {executiveOptions.unmappedCount > 0 && (
+                <option value="unmapped">
+                  Unmapped ({executiveOptions.unmappedCount} shops)
+                </option>
+              )}
+            </select>
+          </div>
+
+          {/* Company / Brand Filter Dropdown (shown when multi-company exists) */}
+          {companyOptions.length > 1 && (
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-md px-2.5 py-1 shadow-2xs">
+              <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="text-[11px] text-muted-foreground font-medium shrink-0">Brand:</span>
+              <select
+                value={selectedCompany}
+                onChange={(e) => setSelectedCompany(e.target.value)}
+                className="text-xs bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
+                aria-label="Filter by brand"
+              >
+                <option value="all">All Brands ({collections.length})</option>
+                {companyOptions.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name} ({c.count} shops)
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Reset Filters Button */}
+          {isFilterActive && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleResetFilters}
+              className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground font-mono gap-1 cursor-pointer"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Multi-Company Notice if applicable */}
       {notUniqueCount > 0 && (
-        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/20 p-2.5 text-xs text-blue-600 dark:text-blue-400">
+        <div className="mx-4 mt-2.5 flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/20 p-2 text-xs text-blue-600 dark:text-blue-400">
           <Info className="h-4 w-4 shrink-0" />
           <span>
-            <strong>Multi-Company Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} registered across multiple companies. Invoices will be recorded under the designated company.
+            <strong>Multi-Company Notice:</strong> {notUniqueCount} {notUniqueCount === 1 ? "shop is" : "shops are"} registered across multiple companies.
           </span>
         </div>
       )}
 
+      {/* Table Content */}
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
@@ -151,10 +359,22 @@ export function UploadPreview({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {collections.length === 0 ? (
+              {filteredCollections.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-24 text-center text-xs text-muted-foreground">
-                    No shop collections parsed.
+                  <TableCell colSpan={10} className="h-28 text-center text-xs text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-1.5">
+                      <SlidersHorizontal className="h-5 w-5 text-muted-foreground/60" />
+                      <span>No collections match the current filter or search criteria.</span>
+                      {isFilterActive && (
+                        <button
+                          type="button"
+                          onClick={handleResetFilters}
+                          className="text-primary font-medium hover:underline text-xs cursor-pointer"
+                        >
+                          Clear filters & search
+                        </button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -223,11 +443,12 @@ export function UploadPreview({
                         </TableCell>
                         <TableCell className="text-xs">
                           {shop.executiveName ? (
-                            <span className="text-foreground font-medium">
-                              {shop.executiveName}
+                            <span className="inline-flex items-center gap-1 font-medium text-foreground bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px]">
+                              <User className="h-3 w-3 text-primary" />
+                              <span>{shop.executiveName}</span>
                             </span>
                           ) : (
-                            <span className="text-muted-foreground italic">
+                            <span className="inline-flex items-center gap-1 text-muted-foreground italic bg-muted/60 border border-border px-1.5 py-0.5 rounded text-[11px]">
                               Unmapped
                             </span>
                           )}
@@ -263,20 +484,17 @@ export function UploadPreview({
                                   <TableBody>
                                     {shop.items.length === 0 ? (
                                       <TableRow>
-                                        <TableCell colSpan={4} className="text-center text-xs py-3 text-muted-foreground italic">
-                                          No individual item rows parsed.
+                                        <TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-2">
+                                          No itemized products found for this shop invoice.
                                         </TableCell>
                                       </TableRow>
                                     ) : (
-                                      shop.items.map((item, itemIdx) => (
-                                        <TableRow
-                                          key={item.id || item.productName + itemIdx}
-                                          className="hover:bg-muted/15 border-b border-border/40 last:border-0"
-                                        >
-                                          <TableCell className="text-center font-mono text-[11px] text-muted-foreground py-1.5">
-                                            {itemIdx + 1}
+                                      shop.items.map((item, idx) => (
+                                        <TableRow key={item.id || idx} className="border-b border-border/40 hover:bg-muted/20">
+                                          <TableCell className="text-center font-mono text-[10px] text-muted-foreground py-1.5">
+                                            {idx + 1}
                                           </TableCell>
-                                          <TableCell className="text-xs font-mono text-foreground py-1.5">
+                                          <TableCell className="text-xs font-mono font-medium text-foreground py-1.5">
                                             {item.productName}
                                           </TableCell>
                                           <TableCell className="text-right font-mono text-xs text-foreground py-1.5">
@@ -303,10 +521,11 @@ export function UploadPreview({
           </Table>
         </div>
 
-        {collections.length > 0 && (
+        {/* Pagination */}
+        {filteredCollections.length > 0 && (
           <PaginationBar
             currentPage={currentPage}
-            totalItems={collections.length}
+            totalItems={filteredCollections.length}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(newSize) => {

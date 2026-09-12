@@ -109,19 +109,31 @@ export function ExecutiveDetailsView() {
   // Copy to clipboard notification
   const [copied, setCopied] = React.useState(false);
 
-  // Filter collections for this executive
+  // Filter collections for this executive strictly by handled companies
   const executiveCollections = React.useMemo(() => {
-    return allCollections.filter(
+    const raw = allCollections.filter(
       (c) => c.executiveName?.toLowerCase() === selectedExecutiveName.toLowerCase()
     );
-  }, [allCollections, selectedExecutiveName]);
+    if (handledCompanies.length === 0) return raw;
+    const handledLower = new Set(handledCompanies.map((c) => c.toLowerCase()));
+    return raw.filter((c) => {
+      const comp = (c.companyName || c.brandName || "").trim().toLowerCase();
+      return handledLower.has(comp);
+    });
+  }, [allCollections, selectedExecutiveName, handledCompanies]);
 
-  // Filter shops assigned to this executive
+  // Filter shops assigned to this executive strictly by handled companies
   const executiveShops = React.useMemo(() => {
-    return allShops.filter(
+    const raw = allShops.filter(
       (s) => s.assignedExecutiveName?.toLowerCase() === selectedExecutiveName.toLowerCase()
     );
-  }, [allShops, selectedExecutiveName]);
+    if (handledCompanies.length === 0) return raw;
+    const handledLower = new Set(handledCompanies.map((c) => c.toLowerCase()));
+    return raw.filter((s) => {
+      const comp = (s.companyName || s.brandName || "").trim().toLowerCase();
+      return handledLower.has(comp);
+    });
+  }, [allShops, selectedExecutiveName, handledCompanies]);
 
   // Metrics calculation
   const totalPendingAmount = React.useMemo(() => {
@@ -344,8 +356,12 @@ export function ExecutiveDetailsView() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground font-mono flex items-center gap-1 text-[11px]">
                   <Building2 className="h-3 w-3 text-primary" />
-                  <span>Companies Handled:</span>
-                  {handledCompanies.length > 1 && (
+                  <span>{handledCompanies.length === 1 ? "Company:" : "Companies Handled:"}</span>
+                  {handledCompanies.length === 1 ? (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-muted/60 border border-border text-foreground">
+                      {handledCompanies[0]}
+                    </span>
+                  ) : (
                     <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                       Multi-Company ({handledCompanies.length})
                     </span>
@@ -362,8 +378,8 @@ export function ExecutiveDetailsView() {
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-                {handledCompanies.length > 1 && (
+              {handledCompanies.length > 1 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
                   <button
                     type="button"
                     onClick={() => setSelectedCompanyFilter("all")}
@@ -373,31 +389,27 @@ export function ExecutiveDetailsView() {
                         : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
                     }`}
                   >
-                    All Brands
+                    All Brands ({executiveShops.length})
                   </button>
-                )}
-                {handledCompanies.map((comp) => {
-                  const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
-                  return (
-                    <button
-                      key={comp}
-                      type="button"
-                      onClick={() => {
-                        if (handledCompanies.length > 1) {
-                          setSelectedCompanyFilter(isSelected ? "all" : comp);
-                        }
-                      }}
-                      className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
-                        isSelected
-                          ? "bg-foreground text-background border-foreground shadow-2xs"
-                          : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
-                      }`}
-                    >
-                      <span>{comp}</span>
-                    </button>
-                  );
-                })}
-              </div>
+                  {handledCompanies.map((comp) => {
+                    const isSelected = selectedCompanyFilter.toLowerCase() === comp.toLowerCase();
+                    return (
+                      <button
+                        key={comp}
+                        type="button"
+                        onClick={() => setSelectedCompanyFilter(isSelected ? "all" : comp)}
+                        className={`h-6 px-2.5 rounded-md text-[11px] font-mono font-medium shrink-0 transition-all border flex items-center gap-1 ${
+                          isSelected
+                            ? "bg-foreground text-background border-foreground shadow-2xs"
+                            : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                        }`}
+                      >
+                        <span>{comp}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

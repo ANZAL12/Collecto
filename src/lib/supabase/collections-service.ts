@@ -2,6 +2,7 @@
 import { createClient, isSupabaseConfigured } from "./client";
 import { ShopCollection, Executive, Shop, ShopMapping, Company } from "@/types";
 import { signUpExecutiveWithSupabase, getStoredExecutiveCredentials, removeExecutiveCredential } from "@/lib/auth-service";
+import { saveExecutiveCompanies, removeStoredExecutiveCompanies, getStoredExecutiveCompaniesMap } from "@/lib/executive-utils";
 
 export function isCancelledOrInvalidShop(name: string): boolean {
   if (!name) return true;
@@ -142,14 +143,18 @@ export async function saveParsedCollectionsToDb(
 
       let shopId: string;
 
+      const isFiltered = Boolean(companyName && companyName !== "Sales Register (Multi-Company)" && companyId && companyId !== "ALL");
+      const effectiveCompName = (isFiltered ? companyName : (shop.companyName || (companyName !== "Sales Register (Multi-Company)" ? companyName : null))) || null;
+      const effectiveCompId = (isFiltered ? companyId : (shop.companyId || (companyId !== "ALL" ? companyId : null))) || null;
+
       if (!existingShop) {
         // A. NEW SHOP: Insert into `shops` table with company / brand tag
         const shopPayload = {
           name: cleanShopName,
-          company_id: companyId || null,
-          company_name: companyName || null,
-          brand_id: companyId || null,
-          brand_name: companyName || null,
+          company_id: effectiveCompId,
+          company_name: effectiveCompName,
+          brand_id: effectiveCompId,
+          brand_name: effectiveCompName,
         };
         let newShopRes = await supabase
           .from("shops")
@@ -186,10 +191,10 @@ export async function saveParsedCollectionsToDb(
           const mapPayload: any = {
             shop_id: shopId,
             executive_id: null,
-            company_id: companyId || null,
-            company_name: companyName || null,
-            brand_id: companyId || null,
-            brand_name: companyName || null,
+            company_id: effectiveCompId,
+            company_name: effectiveCompName,
+            brand_id: effectiveCompId,
+            brand_name: effectiveCompName,
           };
           await supabase.from("shop_mappings").insert(mapPayload);
         }
@@ -203,8 +208,8 @@ export async function saveParsedCollectionsToDb(
           .select("id, executive_id, company_id, brand_id, executives:executive_id (name)")
           .eq("shop_id", shopId);
 
-        if (companyId) {
-          mapQuery = mapQuery.or(`company_id.eq.${companyId},brand_id.eq.${companyId}`);
+        if (effectiveCompId) {
+          mapQuery = mapQuery.or(`company_id.eq.${effectiveCompId},brand_id.eq.${effectiveCompId}`);
         }
 
         const { data: mappingRows } = await mapQuery;
@@ -219,10 +224,10 @@ export async function saveParsedCollectionsToDb(
           const mapPayload: any = {
             shop_id: shopId,
             executive_id: null,
-            company_id: companyId || null,
-            company_name: companyName || null,
-            brand_id: companyId || null,
-            brand_name: companyName || null,
+            company_id: effectiveCompId,
+            company_name: effectiveCompName,
+            brand_id: effectiveCompId,
+            brand_name: effectiveCompName,
           };
           await supabase.from("shop_mappings").insert(mapPayload);
         }
@@ -237,10 +242,10 @@ export async function saveParsedCollectionsToDb(
         total_amount: shop.totalAmount,
         total_quantity: shop.totalQuantity ? String(shop.totalQuantity) : null,
         executive_name: assignedExecName || null,
-        company_id: companyId || shop.companyId || null,
-        company_name: companyName || shop.companyName || null,
-        brand_id: companyId || shop.companyId || null,
-        brand_name: companyName || shop.companyName || null,
+        company_id: effectiveCompId,
+        company_name: effectiveCompName,
+        brand_id: effectiveCompId,
+        brand_name: effectiveCompName,
         upload_batch_id: batchId,
       };
 
@@ -265,8 +270,8 @@ export async function saveParsedCollectionsToDb(
             total_amount: shop.totalAmount,
             total_quantity: shop.totalQuantity ? String(shop.totalQuantity) : null,
             executive_name: assignedExecName || null,
-            company_id: companyId || shop.companyId || null,
-            company_name: companyName || shop.companyName || null,
+            company_id: effectiveCompId,
+            company_name: effectiveCompName,
             upload_batch_id: batchId,
           })
           .select("id")
@@ -287,10 +292,10 @@ export async function saveParsedCollectionsToDb(
           product_name: item.productName,
           quantity: String(item.quantity || "1 Nos"),
           amount: Number(item.amount) || 0,
-          company_id: companyId || shop.companyId || null,
-          company_name: companyName || shop.companyName || null,
-          brand_id: companyId || shop.companyId || null,
-          brand_name: companyName || shop.companyName || null,
+          company_id: item.companyId || effectiveCompId,
+          company_name: item.companyName || effectiveCompName,
+          brand_id: item.companyId || effectiveCompId,
+          brand_name: item.companyName || effectiveCompName,
         }));
 
         let itemsRes = await supabase
@@ -474,6 +479,7 @@ export async function getExecutives(): Promise<Executive[]> {
       name: exec.name,
       username: cached?.username || defaultUsername,
       password: cached?.password || "password123",
+      companies: getStoredExecutiveCompaniesMap()[key] || [],
     };
   });
 }
@@ -1174,12 +1180,13 @@ export async function updateShopExecutive(
 export async function addExecutive(
   name: string,
   username?: string,
-  password?: string
+  password?: string,
+  companies?: string[]
 ): Promise<Executive | null> {
   const cleanName = name.trim();
   if (!cleanName) return null;
 
-  let execRecord: Executive = { id: `exec-${Date.now()}`, name: cleanName };
+  let execRecord: Executive = { id: `exec-${Date.now()}`, name: cleanName, companies: companies || [] };
 
   if (isSupabaseConfigured()) {
     const supabase = createClient();
@@ -1195,7 +1202,16 @@ export async function addExecutive(
       }
 
       if (data) {
-        execRecord = data;
+        execRecord = { ...data, companies: companies || [] };
+      }
+
+      // Safely attempt to persist companies on executives record if column exists
+      if (companies && companies.length > 0 && data?.id) {
+        try {
+          await supabase.from("executives").update({ companies }).eq("id", data.id);
+        } catch {
+          // Ignore if column doesn't exist on remote table
+        }
       }
     }
   }
@@ -1210,31 +1226,41 @@ export async function addExecutive(
 
   const cleanPass = password?.trim() || "password123";
 
-  // Register in Supabase Auth
-  const authRes = await signUpExecutiveWithSupabase(cleanName, cleanUser, cleanPass);
+  // Register in Supabase Auth with companies metadata
+  const authRes = await signUpExecutiveWithSupabase(cleanName, cleanUser, cleanPass, undefined, companies);
   if (!authRes.success) {
     throw new Error(authRes.error || "Failed to register executive in Supabase Auth.");
+  }
+
+  // Save directly assigned companies locally
+  if (companies) {
+    saveExecutiveCompanies(cleanName, companies);
   }
 
   return {
     ...execRecord,
     username: cleanUser,
     password: cleanPass,
+    companies: companies || [],
   };
 }
 
 /**
- * Update username and password for an executive
+ * Update username, password, and assigned companies for an executive
  */
 export async function updateExecutiveCredentials(
   name: string,
   username: string,
   password: string,
-  oldPassword?: string
+  oldPassword?: string,
+  companies?: string[]
 ): Promise<boolean> {
-  const authRes = await signUpExecutiveWithSupabase(name, username.trim(), password.trim(), oldPassword);
+  const authRes = await signUpExecutiveWithSupabase(name, username.trim(), password.trim(), oldPassword, companies);
   if (!authRes.success) {
     throw new Error(authRes.error || "Failed to update credentials in Supabase Auth.");
+  }
+  if (companies) {
+    saveExecutiveCompanies(name, companies);
   }
   return true;
 }
@@ -1244,6 +1270,10 @@ export async function updateExecutiveCredentials(
  */
 export async function deleteExecutive(id: string, name: string): Promise<boolean> {
   const cleanName = name.trim();
+
+  // Clean up cached credentials and assigned companies
+  removeExecutiveCredential(cleanName);
+  removeStoredExecutiveCompanies(cleanName);
 
   if (isSupabaseConfigured()) {
     const supabase = createClient();
@@ -1273,9 +1303,6 @@ export async function deleteExecutive(id: string, name: string): Promise<boolean
       }
     }
   }
-
-  // 4. Remove cached credentials
-  removeExecutiveCredential(cleanName);
 
   return true;
 }

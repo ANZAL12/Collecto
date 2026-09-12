@@ -25,6 +25,7 @@ import {
   deleteExecutive,
 } from "@/lib/supabase/collections-service";
 import { ShopCollection, Shop, ShopMapping } from "@/types";
+import { getStoredExecutiveCompaniesMap } from "@/lib/executive-utils";
 
 export const QUERY_KEYS = {
   executives: ["executives"] as const,
@@ -104,12 +105,14 @@ export function useExecutiveCollections(execName: string) {
 export function useAddExecutiveMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; username?: string; password?: string } | string) => {
+    mutationFn: (data: { name: string; username?: string; password?: string; companies?: string[] } | string) => {
       if (typeof data === "string") return addExecutive(data);
-      return addExecutive(data.name, data.username, data.password);
+      return addExecutive(data.name, data.username, data.password, data.companies);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executives });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
     },
   });
 }
@@ -117,10 +120,23 @@ export function useAddExecutiveMutation() {
 export function useUpdateExecutiveCredentialsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, username, password, oldPassword }: { name: string; username: string; password: string; oldPassword?: string }) =>
-      updateExecutiveCredentials(name, username, password, oldPassword),
+    mutationFn: ({
+      name,
+      username,
+      password,
+      oldPassword,
+      companies,
+    }: {
+      name: string;
+      username: string;
+      password: string;
+      oldPassword?: string;
+      companies?: string[];
+    }) => updateExecutiveCredentials(name, username, password, oldPassword, companies),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.executives });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
     },
   });
 }
@@ -316,7 +332,10 @@ export async function fetchExecutivePortalData(executiveName: string): Promise<E
   if (!executiveName) {
     return { collections: [], shops: [], mappings: [], companies: [] };
   }
-  const res = await fetch(`/api/executive/data?executiveName=${encodeURIComponent(executiveName)}`);
+  const clean = executiveName.trim().toLowerCase();
+  const assigned = getStoredExecutiveCompaniesMap()[clean] || [];
+  const assignedParam = assigned.length > 0 ? `&assignedCompanies=${encodeURIComponent(assigned.join(","))}` : "";
+  const res = await fetch(`/api/executive/data?executiveName=${encodeURIComponent(executiveName)}${assignedParam}`);
   const json = await res.json().catch(() => ({}));
 
   if (res.status === 403 || json.accountDeleted) {

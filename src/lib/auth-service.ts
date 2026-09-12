@@ -86,7 +86,8 @@ export async function signUpExecutiveWithSupabase(
   name: string,
   username: string,
   password: string,
-  oldPassword?: string
+  oldPassword?: string,
+  companies?: string[]
 ): Promise<{ success: boolean; error?: string }> {
   const cleanPass = password.trim();
   const cleanUser = username.trim().toLowerCase();
@@ -119,6 +120,7 @@ export async function signUpExecutiveWithSupabase(
           name: cleanName,
           role: "executive",
           username: cleanUser,
+          ...(companies ? { companies } : {}),
         },
       },
     });
@@ -127,7 +129,7 @@ export async function signUpExecutiveWithSupabase(
       return { success: true };
     }
 
-    // 2. If user already registered in Supabase Auth, try updating their password
+    // 2. If user already registered in Supabase Auth, try updating their password & metadata
     if (error && error.message?.toLowerCase().includes("already registered")) {
       const candidatePasswords = [
         oldPassword,
@@ -150,6 +152,7 @@ export async function signUpExecutiveWithSupabase(
               name: cleanName,
               role: "executive",
               username: cleanUser,
+              ...(companies ? { companies } : {}),
             },
           });
 

@@ -21,7 +21,9 @@ function getCollectoWebUrl() {
     try {
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       if (cfg.COLLECTO_WEB_URL) {
-        return cfg.COLLECTO_WEB_URL.trim().replace(/\/+$/, "");
+        let u = cfg.COLLECTO_WEB_URL.trim().replace(/\/+$/, "");
+        if (u && !u.startsWith("http://") && !u.startsWith("https://")) u = `https://${u}`;
+        return u;
       }
     } catch {}
   }

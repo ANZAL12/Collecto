@@ -3,7 +3,7 @@
   "productName": "Collecto Admin",
   "copyright": "Copyright © 2026 Collecto",
   "directories": {
-    "output": "dist-electron"
+    "output": "release"
   },
   "files": [
     "electron/**/*",

@@ -28,6 +28,10 @@ function syncEnv() {
     }
   }
 
+  if (webUrl && !webUrl.startsWith("http://") && !webUrl.startsWith("https://")) {
+    webUrl = `https://${webUrl}`;
+  }
+
   const configPath = path.join(__dirname, "config.json");
   const configData = {
     COLLECTO_WEB_URL: webUrl.replace(/\/+$/, ""),

@@ -1,0 +1,8 @@
+{
+  "files.watcherExclude": {
+    "**/release/**": true,
+    "**/dist-electron/**": true,
+    "**/.next/**": true,
+    "**/node_modules/**": true
+  }
+}

@@ -636,7 +636,7 @@ export function ExecutiveDetailsView() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <h2 className="text-xs sm:text-sm font-bold text-foreground leading-snug truncate">
+                            <h2 className="text-xs sm:text-sm font-bold text-foreground leading-snug break-words">
                               {col.shopName}
                             </h2>
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono text-muted-foreground mt-0.5">
@@ -772,7 +772,7 @@ export function ExecutiveDetailsView() {
                           <Store className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <h3 className="text-xs sm:text-sm font-semibold text-foreground truncate">
+                          <h3 className="text-xs sm:text-sm font-semibold text-foreground break-words">
                             {shop.name}
                           </h3>
                           <div className="text-[11px] font-mono text-muted-foreground flex items-center gap-1.5 mt-0.5">

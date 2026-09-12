@@ -584,11 +584,11 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                   <button
                     type="button"
                     onClick={() => toggleShop(shop.name)}
-                    className="w-full text-left p-3.5 flex items-center justify-between gap-3 cursor-pointer focus:outline-none"
+                    className="w-full text-left p-3.5 flex items-start justify-between gap-3 cursor-pointer focus:outline-none"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <h2 className="text-sm font-semibold text-foreground leading-snug truncate">
+                        <h2 className="text-sm font-semibold text-foreground leading-snug break-words">
                           {shop.name}
                         </h2>
                         {shop.companies && shop.companies.length > 0 && (

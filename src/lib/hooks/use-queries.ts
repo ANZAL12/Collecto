@@ -24,7 +24,7 @@ import {
   updateExecutiveCredentials,
   deleteExecutive,
 } from "@/lib/supabase/collections-service";
-import { ShopCollection } from "@/types";
+import { ShopCollection, Shop, ShopMapping } from "@/types";
 
 export const QUERY_KEYS = {
   executives: ["executives"] as const,
@@ -305,13 +305,73 @@ export function useUpdateUploadBatchFileNameMutation() {
   });
 }
 
-export function useTogglePaymentStatusMutation() {
+export interface ExecutivePortalData {
+  collections: ShopCollection[];
+  shops: Shop[];
+  mappings: ShopMapping[];
+  companies: string[];
+}
+
+export async function fetchExecutivePortalData(executiveName: string): Promise<ExecutivePortalData> {
+  if (!executiveName) {
+    return { collections: [], shops: [], mappings: [], companies: [] };
+  }
+  const res = await fetch(`/api/executive/data?executiveName=${encodeURIComponent(executiveName)}`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch executive data");
+  }
+  const json = await res.json();
+  return {
+    collections: json.collections || [],
+    shops: json.shops || [],
+    mappings: json.mappings || [],
+    companies: json.companies || [],
+  };
+}
+
+export function useExecutivePortalData(executiveName: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.executiveCollections(executiveName),
+    queryFn: () => fetchExecutivePortalData(executiveName),
+    enabled: Boolean(executiveName),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useTogglePaymentStatusMutation(activeExecutive?: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ invoiceId, isPaid }: { invoiceId: string; isPaid: boolean }) =>
-      toggleInvoicePaymentStatus(invoiceId, isPaid),
+    mutationFn: async ({
+      invoiceId,
+      isPaid,
+      executiveName,
+    }: {
+      invoiceId: string;
+      isPaid: boolean;
+      executiveName?: string;
+    }) => {
+      try {
+        await fetch("/api/executive/toggle-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invoiceId,
+            isPaid,
+            executiveName: executiveName || activeExecutive,
+          }),
+        });
+      } catch (err) {
+        console.warn("API toggle error, falling back to direct service:", err);
+      }
+      return toggleInvoicePaymentStatus(invoiceId, isPaid);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      if (activeExecutive) {
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.executiveCollections(activeExecutive),
+        });
+      }
     },
   });
 }

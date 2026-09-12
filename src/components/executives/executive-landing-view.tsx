@@ -16,9 +16,7 @@ import {
 } from "lucide-react";
 import {
   useExecutives,
-  useShops,
-  useShopCollections,
-  useShopMappings,
+  useExecutivePortalData,
   useTogglePaymentStatusMutation,
 } from "@/lib/hooks/use-queries";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -71,11 +69,6 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   }, [propSession, router]);
 
   const { data: executives = [] } = useExecutives();
-  const { data: allShops = [], isLoading: isLoadingShops } = useShops();
-  const { data: allCollections = [], isLoading: isLoadingColls } = useShopCollections();
-  const { data: allMappings = [] } = useShopMappings();
-
-  const togglePaymentMutation = useTogglePaymentStatusMutation();
 
   const isAdmin = session?.role === "admin";
   const [adminSelectedExec, setAdminSelectedExec] = React.useState<string>(() => urlParamName || "");
@@ -103,44 +96,37 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     return session?.name || "";
   }, [isAdmin, adminSelectedExec, executives, session]);
 
+  // Secure isolated data fetch: fetches strictly this active executive's data from server API
+  const { data: portalData, isLoading: isLoadingPortal } = useExecutivePortalData(activeExecutive);
+
+  const togglePaymentMutation = useTogglePaymentStatusMutation(activeExecutive);
+
   // Search query
   const [searchQuery, setSearchQuery] = React.useState("");
 
   // Set of expanded shop names
   const [expandedShopNames, setExpandedShopNames] = React.useState<Set<string>>(new Set());
 
-  // Collections for this executive (STRICT: only collections assigned to this executive)
+  // Collections for this executive (STRICT: isolated on server)
   const executiveCollections = React.useMemo(() => {
-    if (!activeExecutive) return [];
-    return allCollections.filter(
-      (c) => c.executiveName?.trim().toLowerCase() === activeExecutive.trim().toLowerCase()
-    );
-  }, [allCollections, activeExecutive]);
+    return portalData?.collections || [];
+  }, [portalData?.collections]);
 
   // Available invoice months for this executive's collections
   const availableMonths = React.useMemo(() => {
     return getAvailableInvoiceMonths(executiveCollections);
   }, [executiveCollections]);
 
-  // Shops assigned to this executive (STRICT: only shops mapped to this executive)
+  // Shops assigned to this executive (STRICT: isolated on server)
   const executiveShops = React.useMemo(() => {
-    if (!activeExecutive) return [];
-    return allShops.filter(
-      (s) => s.assignedExecutiveName?.trim().toLowerCase() === activeExecutive.trim().toLowerCase()
-    );
-  }, [allShops, activeExecutive]);
+    return portalData?.shops || [];
+  }, [portalData?.shops]);
 
   // Handled companies for this executive
   const handledCompanies = React.useMemo(() => {
-    if (!activeExecutive) return [];
-    const fromUtil = getExecutiveCompanies(activeExecutive, {
-      shops: allShops,
-      mappings: allMappings,
-      collections: allCollections,
-    });
-    if (fromUtil.length > 0) return fromUtil;
-
-    // Direct fallback from assigned collections & shops
+    if (portalData?.companies && portalData.companies.length > 0) {
+      return portalData.companies;
+    }
     const compSet = new Set<string>();
     for (const c of executiveCollections) {
       const comp = c.companyName?.trim() || c.brandName?.trim();
@@ -151,7 +137,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       if (comp) compSet.add(comp);
     }
     return Array.from(compSet).sort((a, b) => a.localeCompare(b));
-  }, [activeExecutive, allShops, allMappings, allCollections, executiveCollections, executiveShops]);
+  }, [portalData?.companies, executiveCollections, executiveShops]);
 
   // Reset filters when switching executive
   React.useEffect(() => {
@@ -340,7 +326,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     }
   };
 
-  const isLoading = isLoadingShops || isLoadingColls;
+  const isLoading = isLoadingPortal;
 
   if (isCheckingAuth) {
     return (

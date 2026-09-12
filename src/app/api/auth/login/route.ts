@@ -41,13 +41,23 @@ export async function POST(req: Request) {
     }
 
     if (match && match.password === cleanPass) {
+      if (match.role === "admin" || cleanUser === "admin") {
+        return Response.json(
+          {
+            success: false,
+            error: "Administrator authentication failed",
+          },
+          { status: 403 }
+        );
+      }
+
       return Response.json({
         success: true,
         session: {
           id: `user-${cleanUser}`,
           name: match.name,
           email: `${match.username}@collecto.app`,
-          role: match.role || "executive",
+          role: "executive",
         },
       });
     }

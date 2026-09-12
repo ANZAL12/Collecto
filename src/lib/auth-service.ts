@@ -3,6 +3,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { UserSession } from "@/types";
+import { isDesktopApp } from "@/lib/desktop-utils";
 
 const SESSION_STORAGE_KEY = "collecto_current_user";
 const CREDS_STORAGE_KEY = "collecto_executive_credentials";
@@ -192,18 +193,6 @@ export async function authenticate(
     };
   }
 
-  // 1. Built-in Admin bypass fallback so admin is never locked out
-  if (cleanInput.toLowerCase() === "admin" && cleanPass === "123") {
-    const adminSession: UserSession = {
-      id: "user-admin",
-      name: "Administrator",
-      email: "admin@collecto.app",
-      role: "admin",
-    };
-    setCurrentSession(adminSession);
-    return { success: true, session: adminSession };
-  }
-
   if (!isSupabaseConfigured()) {
     return {
       success: false,
@@ -236,8 +225,8 @@ export async function authenticate(
         success: false,
         error:
           error.message === "Invalid login credentials"
-            ? "Invalid login credentials. Please check your username and password. Default executive password is 'password123'."
-            : error.message || "Invalid username or password.",
+            ? "Invalid login credentials. Please check your username/Gmail and password."
+            : error.message || "Invalid credentials.",
       };
     }
 
@@ -247,9 +236,16 @@ export async function authenticate(
 
     // Extract user metadata from Supabase Auth user
     const meta = data.user.user_metadata || {};
+    const appMeta = data.user.app_metadata || {};
+    const isExecutive = meta.role === "executive" || appMeta.role === "executive";
+    const isExplicitAdmin = meta.role === "admin" || appMeta.role === "admin";
+
+    // Admin role is granted if explicitly designated as admin, or authenticated in desktop app and not an executive
     const role: "admin" | "executive" =
-      meta.role === "admin" || cleanInput.toLowerCase() === "admin" ? "admin" : "executive";
-    const name: string = meta.name || cleanInput;
+      isExplicitAdmin || (isDesktopApp() && !isExecutive) ? "admin" : "executive";
+
+    const name: string =
+      meta.name || (role === "admin" ? "Administrator" : cleanInput);
 
     const userSession: UserSession = {
       id: data.user.id,

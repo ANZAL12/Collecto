@@ -11,12 +11,6 @@ export interface ServerCredentialEntry {
 const CREDENTIALS_FILE_PATH = path.join(process.cwd(), "src", "data", "credentials.json");
 
 const DEFAULT_CREDENTIALS: Record<string, ServerCredentialEntry> = {
-  admin: {
-    username: "admin",
-    password: "123",
-    name: "Administrator",
-    role: "admin",
-  },
   anzal: {
     username: "anzal",
     password: "123",

@@ -25,6 +25,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isDesktop, setIsDesktop] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsDesktop(isDesktopApp());
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,13 +100,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
               <div className="space-y-1">
                 <Label htmlFor="username" className="text-xs flex items-center gap-1.5">
                   <User className="h-3 w-3 text-muted-foreground" />
-                  <span>Username</span>
+                  <span>{isDesktop ? "Admin Gmail / Username" : "Username"}</span>
                 </Label>
                 <Input
                   id="username"
                   type="text"
                   required
-                  placeholder="Enter your username"
+                  placeholder={isDesktop ? "Enter admin Gmail" : "Enter your username"}
                   value={username}
                   onChange={(e) => {
                     setError(null);

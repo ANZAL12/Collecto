@@ -247,6 +247,22 @@ export async function authenticate(
     const name: string =
       meta.name || (role === "admin" ? "Administrator" : cleanInput);
 
+    // Prevent login if this is an executive account that has been deleted from the database
+    if (role === "executive") {
+      const { data: dbExec } = await supabase
+        .from("executives")
+        .select("id, name")
+        .ilike("name", name.trim())
+        .maybeSingle();
+
+      if (!dbExec) {
+        return {
+          success: false,
+          error: "Your executive account has been deactivated or removed by the administrator.",
+        };
+      }
+    }
+
     const userSession: UserSession = {
       id: data.user.id,
       name,

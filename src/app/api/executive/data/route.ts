@@ -30,6 +30,24 @@ export async function GET(req: Request) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const cleanExec = executiveName.toLowerCase();
 
+    // 0. Verify that this executive account actively exists in the database
+    const { data: execRecord, error: execCheckErr } = await supabase
+      .from("executives")
+      .select("id, name")
+      .ilike("name", executiveName.trim())
+      .maybeSingle();
+
+    if (!execRecord) {
+      return Response.json(
+        {
+          success: false,
+          accountDeleted: true,
+          error: "This executive account has been deleted or deactivated by the administrator.",
+        },
+        { status: 403 }
+      );
+    }
+
     // 1. Fetch only collections assigned strictly to this executive
     const { data: colData, error: colErr } = await supabase
       .from("shop_collections")

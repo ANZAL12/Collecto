@@ -317,10 +317,19 @@ export async function fetchExecutivePortalData(executiveName: string): Promise<E
     return { collections: [], shops: [], mappings: [], companies: [] };
   }
   const res = await fetch(`/api/executive/data?executiveName=${encodeURIComponent(executiveName)}`);
-  if (!res.ok) {
-    throw new Error("Failed to fetch executive data");
+  const json = await res.json().catch(() => ({}));
+
+  if (res.status === 403 || json.accountDeleted) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("collecto_current_user");
+      window.location.href = "/login?error=account_deleted";
+    }
+    throw new Error(json.error || "Account has been deleted by administrator");
   }
-  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to fetch executive data");
+  }
   return {
     collections: json.collections || [],
     shops: json.shops || [],

@@ -29,6 +29,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
 
   React.useEffect(() => {
     setIsDesktop(isDesktopApp());
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("error") === "account_deleted") {
+        setError("Your executive account has been deactivated or removed by the administrator.");
+      }
+    }
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {

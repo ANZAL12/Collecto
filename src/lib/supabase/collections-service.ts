@@ -125,6 +125,9 @@ export async function saveParsedCollectionsToDb(
 
     const batchId = batch.id;
 
+    // Fetch all executives to resolve executive IDs when persisting mappings
+    const { data: allExecs } = await supabase.from("executives").select("id, name");
+
     // 2. Process each parent shop collection:
     // Ensure all shops exist in `shops` table and `shop_mappings`
     for (const shop of validCollections) {
@@ -146,6 +149,15 @@ export async function saveParsedCollectionsToDb(
       const isFiltered = Boolean(companyName && companyName !== "Sales Register (Multi-Company)" && companyId && companyId !== "ALL");
       const effectiveCompName = (isFiltered ? companyName : (shop.companyName || (companyName !== "Sales Register (Multi-Company)" ? companyName : null))) || null;
       const effectiveCompId = (isFiltered ? companyId : (shop.companyId || (companyId !== "ALL" ? companyId : null))) || null;
+
+      // Resolve executive ID if assignedExecName is provided
+      let resolvedExecId: string | null = null;
+      if (assignedExecName && allExecs) {
+        const foundExec = allExecs.find(
+          (e) => e.name.trim().toLowerCase() === assignedExecName?.trim().toLowerCase()
+        );
+        if (foundExec) resolvedExecId = foundExec.id;
+      }
 
       if (!existingShop) {
         // A. NEW SHOP: Insert into `shops` table with company / brand tag
@@ -186,11 +198,11 @@ export async function saveParsedCollectionsToDb(
           shopId = newShopRes.data.id;
         }
 
-        // B. Add new shop into `shop_mappings` as unmapped (executive_id = null)
+        // B. Add new shop into `shop_mappings` with assigned executive if known
         if (shopId) {
           const mapPayload: any = {
             shop_id: shopId,
-            executive_id: null,
+            executive_id: resolvedExecId || null,
             company_id: effectiveCompId,
             company_name: effectiveCompName,
             brand_id: effectiveCompId,
@@ -219,11 +231,19 @@ export async function saveParsedCollectionsToDb(
         if (mappedExec) {
           // If already mapped shop, route collection directly to that executive
           assignedExecName = mappedExec;
-        } else if (!mappingData) {
-          // Ensure mapping record exists as unmapped
+        } else if (mappingData) {
+          // If mapping exists but has no executive, and we have an executive from the preview, update it!
+          if (!mappingData.executive_id && resolvedExecId) {
+            await supabase
+              .from("shop_mappings")
+              .update({ executive_id: resolvedExecId })
+              .eq("id", mappingData.id);
+          }
+        } else {
+          // Ensure mapping record exists with resolved executive or unmapped
           const mapPayload: any = {
             shop_id: shopId,
-            executive_id: null,
+            executive_id: resolvedExecId || null,
             company_id: effectiveCompId,
             company_name: effectiveCompName,
             brand_id: effectiveCompId,

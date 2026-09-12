@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, cn } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import {
   ChevronDown,
@@ -29,6 +29,7 @@ import {
   X,
   RotateCcw,
   SlidersHorizontal,
+  AlertTriangle,
 } from "lucide-react";
 
 interface UploadPreviewProps {
@@ -36,6 +37,10 @@ interface UploadPreviewProps {
   rows?: ParsedExcelRow[];
   groupedShops?: ShopCollection[];
   className?: string;
+  executives?: { id: string; name: string }[];
+  onUpdateShopExecutive?: (shopId: string, newExecutiveName: string | undefined) => void;
+  showWarningsOnly?: boolean;
+  onToggleWarningsOnly?: (show: boolean) => void;
 }
 
 export function UploadPreview({
@@ -43,6 +48,10 @@ export function UploadPreview({
   rows,
   groupedShops,
   className,
+  executives,
+  onUpdateShopExecutive,
+  showWarningsOnly: controlledWarningsOnly,
+  onToggleWarningsOnly,
 }: UploadPreviewProps) {
   // 1. Raw collections list
   const collections: ShopCollection[] = React.useMemo(() => {
@@ -63,6 +72,15 @@ export function UploadPreview({
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedExecutive, setSelectedExecutive] = React.useState<string>("all");
   const [selectedCompany, setSelectedCompany] = React.useState<string>("all");
+
+  // Warnings filter state (controlled or local) - filters to unmapped shops needing an executive
+  const [internalWarningsOnly, setInternalWarningsOnly] = React.useState(false);
+  const isWarningsOnly = controlledWarningsOnly !== undefined ? controlledWarningsOnly : internalWarningsOnly;
+
+  const handleToggleWarnings = (val: boolean) => {
+    setInternalWarningsOnly(val);
+    onToggleWarningsOnly?.(val);
+  };
 
   // 3. Extract unique executive options with counts
   const executiveOptions = React.useMemo(() => {
@@ -99,6 +117,17 @@ export function UploadPreview({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [collections]);
 
+  // 4b. Extract warning counts across collections (unmapped shops needing executive assignment)
+  const warningCounts = React.useMemo(() => {
+    let unmapped = 0;
+    for (const shop of collections) {
+      if (!shop.executiveName || shop.status === "unmapped") {
+        unmapped++;
+      }
+    }
+    return { unmapped, total: unmapped };
+  }, [collections]);
+
   // 5. Apply filters & search
   const filteredCollections = React.useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -106,6 +135,12 @@ export function UploadPreview({
     const compFilter = selectedCompany.trim().toLowerCase();
 
     return collections.filter((shop) => {
+      // Filter by warnings (unmapped shops)
+      if (isWarningsOnly) {
+        const isUnmapped = !shop.executiveName || shop.status === "unmapped";
+        if (!isUnmapped) return false;
+      }
+
       // Filter by executive
       if (execFilter !== "all") {
         if (execFilter === "unmapped") {
@@ -139,7 +174,7 @@ export function UploadPreview({
 
       return true;
     });
-  }, [collections, searchQuery, selectedExecutive, selectedCompany]);
+  }, [collections, searchQuery, selectedExecutive, selectedCompany, isWarningsOnly]);
 
   // 6. Pagination state (reset to page 1 whenever filters change)
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -147,7 +182,7 @@ export function UploadPreview({
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedExecutive, selectedCompany]);
+  }, [searchQuery, selectedExecutive, selectedCompany, isWarningsOnly]);
 
   const paginatedCollections = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -314,6 +349,28 @@ export function UploadPreview({
             </div>
           )}
 
+          {/* Warnings Filter Toggle Button */}
+          <Button
+            type="button"
+            variant={isWarningsOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleToggleWarnings(!isWarningsOnly)}
+            disabled={warningCounts.total === 0}
+            className={cn(
+              "h-8 px-2.5 text-xs font-mono gap-1.5 cursor-pointer transition-all shadow-2xs",
+              isWarningsOnly
+                ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600 font-semibold ring-1 ring-amber-500/40"
+                : warningCounts.total > 0
+                ? "border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
+                : "text-muted-foreground opacity-50 cursor-not-allowed"
+            )}
+            title={warningCounts.total > 0 ? "Filter table to show only unmapped warning rows" : "No warnings (all shops mapped)"}
+          >
+            <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", isWarningsOnly ? "text-white" : "text-amber-500")} />
+            <span>Warnings ({warningCounts.total})</span>
+            {isWarningsOnly && <X className="h-3 w-3 ml-0.5" />}
+          </Button>
+
           {/* Reset Filters Button */}
           {isFilterActive && (
             <Button
@@ -329,6 +386,25 @@ export function UploadPreview({
           )}
         </div>
       </div>
+
+      {/* Warning Filter Active Banner */}
+      {isWarningsOnly && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Showing <strong>{filteredCollections.length}</strong> unmapped {filteredCollections.length === 1 ? "shop (requires executive assignment)" : "shops (require executive assignment)"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleWarnings(false)}
+            className="text-[11px] underline font-mono hover:text-amber-950 dark:hover:text-amber-100 cursor-pointer font-semibold"
+          >
+            Show All ({collections.length})
+          </button>
+        </div>
+      )}
 
       {/* Multi-Company Notice if applicable */}
       {notUniqueCount > 0 && (
@@ -381,15 +457,19 @@ export function UploadPreview({
                 paginatedCollections.map((shop, index) => {
                   const key = shop.id || `${shop.shopName}_${shop.invoiceNo}`;
                   const isExpanded = expandedShops.has(key);
+                  const isUnmapped = !shop.executiveName || shop.status === "unmapped";
+                  const hasWarning = isUnmapped; // ONLY unmapped shops are warnings
 
                   return (
                     <React.Fragment key={key}>
                       {/* Shop Row (Parent) */}
                       <TableRow
                         onClick={() => toggleShop(key)}
-                        className={`cursor-pointer transition-colors border-b border-border hover:bg-muted/40 ${
-                          isExpanded ? "bg-muted/25" : ""
-                        }`}
+                        className={cn(
+                          "cursor-pointer transition-colors border-b border-border hover:bg-muted/40",
+                          isExpanded && "bg-muted/25",
+                          hasWarning && "bg-amber-500/[0.02]"
+                        )}
                       >
                         <TableCell className="p-2 text-center text-muted-foreground">
                           {isExpanded ? (
@@ -399,7 +479,17 @@ export function UploadPreview({
                           )}
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
-                          {(currentPage - 1) * pageSize + index + 1}
+                          <span className="inline-flex items-center gap-1">
+                            {hasWarning && (
+                              <span
+                                title="Warning: Unmapped executive. Please assign an executive."
+                                className="inline-flex items-center"
+                              >
+                                <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                              </span>
+                            )}
+                            <span>{(currentPage - 1) * pageSize + index + 1}</span>
+                          </span>
                         </TableCell>
                         <TableCell className="text-xs">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -442,7 +532,32 @@ export function UploadPreview({
                           {formatCurrency(shop.totalAmount)}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {shop.executiveName ? (
+                          {onUpdateShopExecutive && executives && executives.length > 0 ? (
+                            <div className="relative inline-flex items-center">
+                              <select
+                                value={shop.executiveName || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value.trim();
+                                  onUpdateShopExecutive(shop.id, val ? val : undefined);
+                                }}
+                                className={cn(
+                                  "h-6 text-[11px] font-medium rounded px-1.5 py-0 border transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary",
+                                  shop.executiveName
+                                    ? "bg-primary/10 border-primary/30 text-foreground font-semibold"
+                                    : "bg-muted/60 border-border text-muted-foreground italic"
+                                )}
+                              >
+                                <option value="" className="italic text-muted-foreground bg-background">
+                                  Unmapped
+                                </option>
+                                {executives.map((ex) => (
+                                  <option key={ex.id} value={ex.name} className="not-italic text-foreground bg-background">
+                                    {ex.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : shop.executiveName ? (
                             <span className="inline-flex items-center gap-1 font-medium text-foreground bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px]">
                               <User className="h-3 w-3 text-primary" />
                               <span>{shop.executiveName}</span>
@@ -454,7 +569,15 @@ export function UploadPreview({
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px] uppercase font-mono",
+                              shop.isExistingShop
+                                ? "bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-semibold"
+                            )}
+                          >
                             {shop.isExistingShop ? "Registered" : "New Shop"}
                           </Badge>
                         </TableCell>

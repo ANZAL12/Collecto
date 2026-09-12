@@ -29,6 +29,7 @@ import {
   useUpdateUploadBatchFileNameMutation,
   useShops,
   useCompanies,
+  useExecutives,
 } from "@/lib/hooks/use-queries";
 import {
   RotateCcw,
@@ -64,6 +65,7 @@ export default function AdminDashboardPage() {
   const [editingBatchId, setEditingBatchId] = React.useState<string | null>(null);
   const [editingBatchName, setEditingBatchName] = React.useState("");
   const [savingBatchNameId, setSavingBatchNameId] = React.useState<string | null>(null);
+  const [showWarningsOnly, setShowWarningsOnly] = React.useState(false);
 
   // Pagination state for recent uploads
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -72,9 +74,29 @@ export default function AdminDashboardPage() {
   const { data: recentBatches = [] } = useUploadBatches();
   const { data: existingShops = [] } = useShops();
   const { data: companies = [] } = useCompanies();
+  const { data: executives = [] } = useExecutives();
   const saveCollectionsMutation = useSaveCollectionsMutation();
   const deleteBatchMutation = useDeleteUploadBatchMutation();
   const updateFileNameMutation = useUpdateUploadBatchFileNameMutation();
+
+  const handleUpdateShopExecutive = (shopId: string, newExecutiveName: string | undefined) => {
+    setValidationResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        collections: prev.collections.map((col) => {
+          if (col.id === shopId) {
+            return {
+              ...col,
+              executiveName: newExecutiveName,
+              status: newExecutiveName ? "mapped" : "unmapped",
+            };
+          }
+          return col;
+        }),
+      };
+    });
+  };
 
   // Read URL query param to activate parser2 if routed with ?parser=2
   React.useEffect(() => {
@@ -226,6 +248,7 @@ export default function AdminDashboardPage() {
     setSelectedFile(null);
     setValidationResult(null);
     setIsCommitted(false);
+    setShowWarningsOnly(false);
     lastParsedKeyRef.current = "";
   };
 
@@ -419,10 +442,16 @@ export default function AdminDashboardPage() {
             onFileNameChange={(newName) => {
               setValidationResult((prev) => (prev ? { ...prev, fileName: newName } : null));
             }}
+            onToggleWarnings={() => setShowWarningsOnly((prev) => !prev)}
+            isWarningsActive={showWarningsOnly}
           />
 
           <UploadPreview
             collections={validationResult.collections}
+            executives={executives}
+            onUpdateShopExecutive={handleUpdateShopExecutive}
+            showWarningsOnly={showWarningsOnly}
+            onToggleWarningsOnly={setShowWarningsOnly}
           />
 
           <div className="flex items-center justify-end gap-2 pt-1">

@@ -180,10 +180,8 @@ export function matchExistingShop(
         assignedExecutive: exactCompany.assignedExecutiveName,
         shopId: exactCompany.id,
         matchedCompany: exactCompany.companyName || exactCompany.brandName,
-        isNotUnique: isMultiBrand,
-        uniquenessMessage: isMultiBrand
-          ? `Multi-brand: Mapped for ${companyName} (also in ${otherCompanies.join(", ")})`
-          : undefined,
+        isNotUnique: false,
+        uniquenessMessage: undefined,
       };
     }
 
@@ -203,11 +201,27 @@ export function matchExistingShop(
         assignedExecutive: containsCompany.assignedExecutiveName,
         shopId: containsCompany.id,
         matchedCompany: containsCompany.companyName || containsCompany.brandName,
-        isNotUnique: isMultiBrand,
-        uniquenessMessage: isMultiBrand
-          ? `Multi-brand: Mapped for ${companyName} (also in ${otherCompanies.join(", ")})`
-          : undefined,
+        isNotUnique: false,
+        uniquenessMessage: undefined,
       };
+    }
+  }
+
+  // Helper to determine if the target company has a sole dedicated executive across registered shops
+  let companyDedicatedExec: string | undefined = undefined;
+  if (normTargetCompany) {
+    const targetCompExecs = Array.from(
+      new Set(
+        existingShops
+          .filter((s) => {
+            const c = (s.companyName || s.brandName || "").toLowerCase();
+            return c === normTargetCompany && Boolean(s.assignedExecutiveName?.trim());
+          })
+          .map((s) => s.assignedExecutiveName!.trim())
+      )
+    );
+    if (targetCompExecs.length === 1) {
+      companyDedicatedExec = targetCompExecs[0];
     }
   }
 
@@ -220,35 +234,45 @@ export function matchExistingShop(
   );
   if (genericExact) {
     const notUnique = allMatches.length > 1 || isMultiBrand;
+    // If the collection belongs to a specific company, and the shop is only generically mapped or mapped to another brand,
+    // do NOT inherit the executive assignment from another brand. Use dedicated brand executive if available.
+    const isTargetingSpecificCompany = Boolean(companyId || companyName);
+    const assignedExec = isTargetingSpecificCompany ? companyDedicatedExec : genericExact.assignedExecutiveName;
+
     return {
       matched: true,
       canonicalShopName: genericExact.name,
-      assignedExecutive: genericExact.assignedExecutiveName,
+      assignedExecutive: assignedExec,
       shopId: genericExact.id,
-      matchedCompany: genericExact.companyName || genericExact.brandName,
-      isNotUnique: notUnique,
-      uniquenessMessage: companyName
-        ? `Not unique: No mapping for ${companyName} (Using General mapping)`
+      matchedCompany: genericExact.companyName || genericExact.brandName || companyName,
+      isNotUnique: !assignedExec && notUnique,
+      uniquenessMessage: !assignedExec && companyName
+        ? `Unassigned for ${companyName}`
         : undefined,
     };
   }
 
-  // 4. FALLBACK: Any exact match across all shops
+  // 4. FALLBACK: Any exact match across all shops (from other companies)
+  // The shop exists in the master database (so it is a known/registered shop name).
+  // If the target company has a dedicated executive (e.g. General -> riyas), assign them!
+  // Otherwise, leave unassigned so it never incorrectly inherits a different brand's executive.
   const anyExact = existingShops.find(
     (s) => s.name.trim().toLowerCase() === clean || normalize(s.name) === normCell
   );
   if (anyExact) {
     const comp = anyExact.companyName || anyExact.brandName || "Other brand";
+    const assignedExec = companyDedicatedExec;
+
     return {
       matched: true,
       canonicalShopName: anyExact.name,
-      assignedExecutive: anyExact.assignedExecutiveName,
+      assignedExecutive: assignedExec,
       shopId: anyExact.id,
-      matchedCompany: comp,
-      isNotUnique: true,
+      matchedCompany: companyName || comp,
+      isNotUnique: !assignedExec,
       uniquenessMessage:
-        companyName && comp.toLowerCase() !== normTargetCompany
-          ? `Multi-Company: Also mapped under ${comp}`
+        !assignedExec && companyName && comp.toLowerCase() !== normTargetCompany
+          ? `Unassigned for ${companyName}`
           : undefined,
     };
   }
@@ -263,16 +287,18 @@ export function matchExistingShop(
   });
   if (anyContains) {
     const comp = anyContains.companyName || anyContains.brandName || "Other brand";
+    const assignedExec = companyDedicatedExec;
+
     return {
       matched: true,
       canonicalShopName: anyContains.name,
-      assignedExecutive: anyContains.assignedExecutiveName,
+      assignedExecutive: assignedExec,
       shopId: anyContains.id,
-      matchedCompany: comp,
-      isNotUnique: true,
+      matchedCompany: companyName || comp,
+      isNotUnique: !assignedExec,
       uniquenessMessage:
-        companyName && comp.toLowerCase() !== normTargetCompany
-          ? `Multi-Company: Also mapped under ${comp}`
+        !assignedExec && companyName && comp.toLowerCase() !== normTargetCompany
+          ? `Unassigned for ${companyName}`
           : undefined,
     };
   }
@@ -280,7 +306,7 @@ export function matchExistingShop(
   return {
     matched: false,
     canonicalShopName: cellText.trim(),
-    assignedExecutive: undefined,
+    assignedExecutive: companyDedicatedExec,
   };
 }
 
@@ -556,8 +582,8 @@ export async function simulateParseExcelFile(
       totalShops: finalCollections.length,
       totalItems: totalItemsCount,
       totalRows: flatRows.length,
-      validRows: finalCollections.filter((r) => r.status === "mapped").length,
-      warningRows: finalCollections.filter((r) => r.status === "unmapped").length,
+      validRows: finalCollections.filter((r) => Boolean(r.executiveName) && r.status === "mapped").length,
+      warningRows: finalCollections.filter((r) => !r.executiveName || r.status === "unmapped").length,
       errorRows: 0,
       collections: finalCollections,
       groupedShops: finalCollections,
@@ -925,8 +951,8 @@ export async function parseSalesRegisterExcelFile(
       totalShops: collections.length,
       totalItems: totalItemsCount,
       totalRows: flatRows.length,
-      validRows: collections.filter((r) => r.status === "mapped").length,
-      warningRows: collections.filter((r) => r.status === "unmapped").length,
+      validRows: collections.filter((r) => Boolean(r.executiveName) && r.status === "mapped").length,
+      warningRows: collections.filter((r) => !r.executiveName || r.status === "unmapped").length,
       errorRows: 0,
       collections,
       groupedShops: collections,

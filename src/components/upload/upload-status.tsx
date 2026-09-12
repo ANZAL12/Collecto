@@ -2,7 +2,7 @@ import * as React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatCurrency } from "@/lib/utils";
 
-import { Pencil, Check, X } from "lucide-react";
+import { Pencil, Check, X, AlertTriangle } from "lucide-react";
 
 interface UploadStatusProps {
   fileName: string;
@@ -13,6 +13,8 @@ interface UploadStatusProps {
   totalAmount?: number;
   companyName?: string;
   onFileNameChange?: (newName: string) => void;
+  onToggleWarnings?: () => void;
+  isWarningsActive?: boolean;
   className?: string;
 }
 
@@ -25,6 +27,8 @@ export function UploadStatus({
   totalAmount = 72500,
   companyName,
   onFileNameChange,
+  onToggleWarnings,
+  isWarningsActive = false,
   className,
 }: UploadStatusProps) {
   const [isEditing, setIsEditing] = React.useState(false);
@@ -112,9 +116,22 @@ export function UploadStatus({
               {validRows} valid
             </span>
             {warningRows > 0 && (
-              <span className="border border-border rounded px-1.5 py-0.5 text-muted-foreground">
-                {warningRows} warnings
-              </span>
+              <button
+                type="button"
+                onClick={onToggleWarnings}
+                disabled={!onToggleWarnings}
+                className={cn(
+                  "border rounded px-2 py-0.5 inline-flex items-center gap-1 font-mono text-[11px] transition-all",
+                  onToggleWarnings ? "cursor-pointer" : "cursor-default",
+                  isWarningsActive
+                    ? "bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/50 font-semibold shadow-2xs ring-1 ring-amber-500/30"
+                    : "border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground hover:border-amber-500/30"
+                )}
+                title={onToggleWarnings ? (isWarningsActive ? "Showing warnings only. Click to show all rows." : "Click to view warning rows as filtered.") : undefined}
+              >
+                <AlertTriangle className={cn("h-3 w-3", isWarningsActive ? "text-amber-500 animate-pulse" : "text-amber-500/80")} />
+                <span>{warningRows} warnings</span>
+              </button>
             )}
             {errorRows > 0 && (
               <span className="border border-border rounded px-1.5 py-0.5 text-foreground font-semibold">

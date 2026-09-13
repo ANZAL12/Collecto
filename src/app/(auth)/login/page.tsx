@@ -11,7 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { authenticate } from "@/lib/auth-service";
 import { useExecutives } from "@/lib/hooks/use-queries";
 import { UserSession } from "@/types";
-import { isDesktopApp } from "@/lib/desktop-utils";
+import { isDesktopApp, isWebAdminUnlocked } from "@/lib/desktop-utils";
 
 interface LoginPageProps {
   onLoginSuccess?: (session: UserSession) => void;
@@ -26,9 +26,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isDesktop, setIsDesktop] = React.useState(false);
+  const [isAdminUnlocked, setIsAdminUnlocked] = React.useState(false);
 
   React.useEffect(() => {
     setIsDesktop(isDesktopApp());
+    setIsAdminUnlocked(isDesktopApp() || isWebAdminUnlocked());
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("error") === "account_deleted") {
@@ -46,7 +48,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
       const result = await authenticate(username, password);
 
       if (result.success && result.session) {
-        if (result.session.role === "admin" && !isDesktopApp()) {
+        if (result.session.role === "admin" && !isDesktopApp() && !isWebAdminUnlocked()) {
           setError("Admin access is restricted to the desktop application.");
           return;
         }
@@ -88,10 +90,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
 
         {/* Login Card */}
         <Card className="border-border bg-card shadow-sm">
-          <CardHeader className="pb-2 pt-4 px-4 border-b border-border">
+          <CardHeader className="pb-2 pt-4 px-4 border-b border-border flex flex-row items-center justify-between">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Account Login
             </CardTitle>
+            {isAdminUnlocked && !isDesktop && (
+              <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                Admin Web Mode
+              </span>
+            )}
           </CardHeader>
 
           <form onSubmit={handleLogin}>
@@ -106,13 +113,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
               <div className="space-y-1">
                 <Label htmlFor="username" className="text-xs flex items-center gap-1.5">
                   <User className="h-3 w-3 text-muted-foreground" />
-                  <span>{isDesktop ? "Admin Gmail / Username" : "Username"}</span>
+                  <span>{isDesktop || isAdminUnlocked ? "Admin Gmail / Username" : "Username"}</span>
                 </Label>
                 <Input
                   id="username"
                   type="text"
                   required
-                  placeholder={isDesktop ? "Enter admin Gmail" : "Enter your username"}
+                  placeholder={isDesktop || isAdminUnlocked ? "Enter admin Gmail / username" : "Enter your username"}
                   value={username}
                   onChange={(e) => {
                     setError(null);

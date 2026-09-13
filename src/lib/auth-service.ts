@@ -3,7 +3,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { UserSession } from "@/types";
-import { isDesktopApp } from "@/lib/desktop-utils";
+import { isDesktopApp, isWebAdminUnlocked } from "@/lib/desktop-utils";
 
 const SESSION_STORAGE_KEY = "collecto_current_user";
 const CREDS_STORAGE_KEY = "collecto_executive_credentials";
@@ -243,9 +243,10 @@ export async function authenticate(
     const isExecutive = meta.role === "executive" || appMeta.role === "executive";
     const isExplicitAdmin = meta.role === "admin" || appMeta.role === "admin";
 
-    // Admin role is granted if explicitly designated as admin, or authenticated in desktop app and not an executive
+    // Admin role is granted if explicitly designated as admin, or authenticated in desktop app / unlocked web and not an executive
+    const isAllowedAdmin = isDesktopApp() || isWebAdminUnlocked();
     const role: "admin" | "executive" =
-      isExplicitAdmin || (isDesktopApp() && !isExecutive) ? "admin" : "executive";
+      isExplicitAdmin || (isAllowedAdmin && !isExecutive) ? "admin" : "executive";
 
     const name: string =
       meta.name || (role === "admin" ? "Administrator" : cleanInput);

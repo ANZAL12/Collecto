@@ -54,6 +54,15 @@ import { Company } from "@/types";
 import { cn } from "@/lib/utils";
 import { useUploadDraft } from "@/lib/upload-draft-context";
 
+function getHaierOrDefaultCompany(companies: Company[]): Company | null {
+  if (!companies || companies.length === 0) return null;
+  const match = companies.find((c) => {
+    const n = c.name?.toLowerCase() || "";
+    return n.includes("haier") || n.includes("heir");
+  });
+  return match || companies[0];
+}
+
 export default function AdminDashboardPage() {
   const pathname = usePathname();
   const basePath = pathname?.startsWith("/global") ? "/global" : "/admin";
@@ -171,9 +180,12 @@ export default function AdminDashboardPage() {
     if (companies.length === 0) return;
 
     if (activeParser === "parser1") {
-      // Parser 1 requires a concrete company, NOT "ALL" and NOT null
+      // Parser 1 requires a concrete company, NOT "ALL" and NOT null (defaults to Haier)
       if (!selectedCompany || selectedCompany.id === "ALL") {
-        setSelectedCompany(companies[0]);
+        const defaultComp = getHaierOrDefaultCompany(companies);
+        if (defaultComp) {
+          setSelectedCompany(defaultComp);
+        }
       }
     } else {
       // Parser 2 defaults to "ALL" if not set
@@ -195,9 +207,10 @@ export default function AdminDashboardPage() {
       // In Parser 2 mode, default to All Companies
       setSelectedCompany({ id: "ALL", name: "All Companies", code: "ALL" });
     } else {
-      // In Parser 1 mode, default to first company
-      if (companies.length > 0) {
-        setSelectedCompany(companies[0]);
+      // In Parser 1 mode, default to Haier company
+      const defaultComp = getHaierOrDefaultCompany(companies);
+      if (defaultComp) {
+        setSelectedCompany(defaultComp);
       }
     }
   };
@@ -223,7 +236,7 @@ export default function AdminDashboardPage() {
         const targetCompany =
           company && company.id !== "ALL"
             ? company
-            : (companies.length > 0 ? companies[0] : null);
+            : getHaierOrDefaultCompany(companies);
 
         const result = await simulateParseExcelFile(
           file,
@@ -300,7 +313,7 @@ export default function AdminDashboardPage() {
 
     const targetCompany =
       activeParser === "parser1"
-        ? (selectedCompany && selectedCompany.id !== "ALL" ? selectedCompany : (companies[0] || null))
+        ? (selectedCompany && selectedCompany.id !== "ALL" ? selectedCompany : getHaierOrDefaultCompany(companies))
         : selectedCompany;
 
     if (activeParser === "parser1" && !targetCompany) {
@@ -469,7 +482,7 @@ export default function AdminDashboardPage() {
         selectedCompanyId={
           selectedCompany?.id && (activeParser === "parser2" || selectedCompany.id !== "ALL")
             ? selectedCompany.id
-            : (activeParser === "parser2" ? "ALL" : (companies[0]?.id || ""))
+            : (activeParser === "parser2" ? "ALL" : (getHaierOrDefaultCompany(companies)?.id || ""))
         }
         onSelectCompany={(comp) => setSelectedCompany(comp)}
         disabled={isSaving}

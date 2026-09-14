@@ -21,7 +21,7 @@ import {
 } from "@/lib/hooks/use-queries";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getCurrentSession, logout } from "@/lib/auth-service";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, calculateRatePerUnit } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ShopCollection, UserSession, CollectionItem } from "@/types";
 import { LogOut } from "lucide-react";
@@ -779,19 +779,32 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                               {/* Items list if any */}
                               {inv.items && inv.items.length > 0 && (
                                 <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
-                                  {inv.items.map((it: CollectionItem, idx: number) => (
-                                    <div
-                                      key={it.id || idx}
-                                      className="flex items-center justify-between text-[11px] font-mono text-muted-foreground"
-                                    >
-                                      <span className="truncate mr-2 text-foreground">
-                                        {it.productName}
-                                      </span>
-                                      <span className="shrink-0">
-                                        x{it.quantity} • {formatCurrency(it.amount)}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {inv.items.map((it: CollectionItem, idx: number) => {
+                                    const rate = calculateRatePerUnit(it.amount, it.quantity);
+                                    const cleanQty = String(it.quantity || "1").replace(/^[xX\s]+/, "");
+                                    return (
+                                      <div
+                                        key={it.id || idx}
+                                        className="flex items-center justify-between text-[11px] font-mono text-muted-foreground gap-2 flex-wrap"
+                                      >
+                                        <span className="truncate mr-1 text-foreground min-w-[120px] flex-1" title={it.productName}>
+                                          {it.productName}
+                                        </span>
+                                        <div className="shrink-0 flex items-center gap-1.5 font-mono ml-auto">
+                                          <span>x{cleanQty}</span>
+                                          {rate !== null && (
+                                            <span className="text-muted-foreground/80 font-medium">
+                                              (@ {formatCurrency(rate)}/unit)
+                                            </span>
+                                          )}
+                                          <span>•</span>
+                                          <span className="font-semibold text-foreground">
+                                            {formatCurrency(it.amount)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
 

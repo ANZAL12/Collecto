@@ -39,7 +39,12 @@ export function CompanySelectBar({
           code: "ALL",
         });
       } else if (companies.length > 0) {
-        onSelectRef.current(companies[0]);
+        const defaultComp =
+          companies.find((c) => {
+            const n = c.name?.toLowerCase() || "";
+            return n.includes("haier") || n.includes("heir");
+          }) || companies[0];
+        onSelectRef.current(defaultComp);
       }
     }
   }, [companies, selectedCompanyId, allowAll]);

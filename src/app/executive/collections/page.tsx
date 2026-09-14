@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { useShopCollections, useShops, useShopMappings } from "@/lib/hooks/use-queries";
 import { ShopCollection, CollectionItem } from "@/types";
 import { getCurrentUser } from "@/lib/mock-auth";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, calculateRatePerUnit } from "@/lib/utils";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { Search, ChevronDown, ChevronRight, ChevronsUpDown, Package, RefreshCw, Building2, Calendar } from "lucide-react";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
@@ -318,36 +318,43 @@ export default function ExecutiveCollectionsPage() {
                                         <TableHead className="w-8 text-center text-[11px]">#</TableHead>
                                         <TableHead className="text-[11px]">Product / Item Name</TableHead>
                                         <TableHead className="text-[11px] text-right">Quantity</TableHead>
+                                        <TableHead className="text-[11px] text-right">Rate / Unit</TableHead>
                                         <TableHead className="text-[11px] text-right">Amount</TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                       {shop.items.length === 0 ? (
                                         <TableRow>
-                                          <TableCell colSpan={4} className="text-center text-xs py-3 text-muted-foreground italic">
+                                          <TableCell colSpan={5} className="text-center text-xs py-3 text-muted-foreground italic">
                                             No itemized products under this invoice.
                                           </TableCell>
                                         </TableRow>
                                       ) : (
-                                        shop.items.map((item: CollectionItem, itemIdx: number) => (
-                                          <TableRow
-                                            key={item.id || item.productName + itemIdx}
-                                            className="hover:bg-muted/15 border-b border-border/40 last:border-0"
-                                          >
-                                            <TableCell className="text-center font-mono text-[11px] text-muted-foreground py-1.5">
-                                              {itemIdx + 1}
-                                            </TableCell>
-                                            <TableCell className="text-xs font-mono text-foreground py-1.5">
-                                              {item.productName}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono text-xs text-foreground py-1.5">
-                                              {item.quantity}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono text-xs font-semibold text-foreground py-1.5">
-                                              {formatCurrency(item.amount)}
-                                            </TableCell>
-                                          </TableRow>
-                                        ))
+                                        shop.items.map((item: CollectionItem, itemIdx: number) => {
+                                          const rate = calculateRatePerUnit(item.amount, item.quantity);
+                                          return (
+                                            <TableRow
+                                              key={item.id || item.productName + itemIdx}
+                                              className="hover:bg-muted/15 border-b border-border/40 last:border-0"
+                                            >
+                                              <TableCell className="text-center font-mono text-[11px] text-muted-foreground py-1.5">
+                                                {itemIdx + 1}
+                                              </TableCell>
+                                              <TableCell className="text-xs font-mono text-foreground py-1.5">
+                                                {item.productName}
+                                              </TableCell>
+                                              <TableCell className="text-right font-mono text-xs text-foreground py-1.5">
+                                                {item.quantity}
+                                              </TableCell>
+                                              <TableCell className="text-right font-mono text-xs text-muted-foreground py-1.5">
+                                                {rate !== null ? formatCurrency(rate) : "—"}
+                                              </TableCell>
+                                              <TableCell className="text-right font-mono text-xs font-semibold text-foreground py-1.5">
+                                                {formatCurrency(item.amount)}
+                                              </TableCell>
+                                            </TableRow>
+                                          );
+                                        })
                                       )}
                                     </TableBody>
                                   </Table>

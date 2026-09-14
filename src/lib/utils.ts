@@ -37,3 +37,28 @@ export function formatDate(dateString: string): string {
     year: "numeric",
   }).format(date);
 }
+
+/**
+ * Extract numerical quantity from strings like "3 Nos", "x2 NO", "10 PCS", "1", etc.
+ */
+export function parseQuantityNumber(quantity?: string | number | null): number | null {
+  if (quantity === undefined || quantity === null) return null;
+  if (typeof quantity === "number") return quantity > 0 ? quantity : null;
+  const clean = String(quantity).replace(/^[xX\s]+/, "").trim();
+  const match = clean.match(/^(\d+(?:\.\d+)?)/);
+  if (match) {
+    const num = parseFloat(match[1]);
+    return num > 0 ? num : null;
+  }
+  return null;
+}
+
+/**
+ * Calculate rate per unit from total item amount and quantity.
+ */
+export function calculateRatePerUnit(amount: number, quantity?: string | number | null): number | null {
+  const qty = parseQuantityNumber(quantity);
+  if (!qty || qty <= 0 || !amount || amount <= 0) return null;
+  return amount / qty;
+}
+

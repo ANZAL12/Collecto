@@ -26,7 +26,7 @@ import {
   useShopMappings,
 } from "@/lib/hooks/use-queries";
 import { getCurrentUser } from "@/lib/mock-auth";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, calculateRatePerUnit } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CollectionItem, ShopCollection } from "@/types";
@@ -686,26 +686,36 @@ export function ExecutiveDetailsView() {
 
                           {col.items && col.items.length > 0 ? (
                             <div className="divide-y divide-border/40">
-                              {col.items.map((item: CollectionItem, idx: number) => (
-                                <div
-                                  key={item.id || `${item.productName}_${idx}`}
-                                  className="py-1.5 flex items-center justify-between gap-3 text-xs"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <span className="font-mono text-xs text-foreground truncate block">
-                                      {item.productName}
-                                    </span>
+                              {col.items.map((item: CollectionItem, idx: number) => {
+                                const rate = calculateRatePerUnit(item.amount, item.quantity);
+                                const cleanQty = String(item.quantity || "1").replace(/^[xX\s]+/, "");
+                                return (
+                                  <div
+                                    key={item.id || `${item.productName}_${idx}`}
+                                    className="py-1.5 flex items-center justify-between gap-3 text-xs"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <span className="font-mono text-xs text-foreground truncate block">
+                                        {item.productName}
+                                      </span>
+                                    </div>
+                                    <div className="text-right shrink-0 font-mono text-xs text-foreground flex items-center gap-1.5">
+                                      <span className="text-muted-foreground">
+                                        x{cleanQty}
+                                      </span>
+                                      {rate !== null && (
+                                        <span className="text-muted-foreground/80 text-[11px]">
+                                          (@ {formatCurrency(rate)}/unit)
+                                        </span>
+                                      )}
+                                      <span className="text-muted-foreground">•</span>
+                                      <span className="font-semibold">
+                                        {formatCurrency(item.amount)}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="text-right shrink-0 font-mono text-xs text-foreground">
-                                    <span className="text-muted-foreground mr-2">
-                                      x{item.quantity}
-                                    </span>
-                                    <span className="font-semibold">
-                                      {formatCurrency(item.amount)}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : (
                             <p className="text-xs text-muted-foreground italic py-1">

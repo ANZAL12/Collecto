@@ -469,32 +469,42 @@ export async function getShopCollections(): Promise<ShopCollection[]> {
 
   return data
     .filter((row: any) => !isCancelledOrInvalidShop(row.shop_name))
-    .map((row: any) => ({
-      id: row.id,
-      shopName: row.shop_name,
-      invoiceNo: row.invoice_no,
-      invoiceDate: row.invoice_date || "",
-      gstinUin: row.gstin_uin || "",
-      totalAmount: Number(row.total_amount) || 0,
-      totalQuantity: row.total_quantity,
-      executiveName: row.executive_name,
-      companyId: row.company_id || row.brand_id,
-      companyName: row.company_name || row.brand_name,
-      brandId: row.brand_id || row.company_id,
-      brandName: row.brand_name || row.company_name,
-      status: row.executive_name ? "mapped" : "unmapped",
-      isPaid: typeof paidMap[row.id] === "boolean" ? paidMap[row.id] : Boolean(row.is_paid),
-      items: (row.collection_items || []).map((item: any) => ({
-        id: item.id,
-        productName: item.product_name,
-        quantity: item.quantity,
-        amount: Number(item.amount) || 0,
-        companyId: item.company_id || row.company_id || row.brand_id,
-        companyName: item.company_name || row.company_name || row.brand_name,
-        brandId: item.brand_id || item.company_id || row.brand_id || row.company_id,
-        brandName: item.brand_name || item.company_name || row.brand_name || row.company_name,
-      })),
-    }));
+    .map((row: any) => {
+      const rawItems = row.collection_items || [];
+      const hasPaidMarker = rawItems.some((item: any) => item.product_name === "__PAID__");
+      const isPaid =
+        typeof paidMap[row.id] === "boolean"
+          ? paidMap[row.id]
+          : hasPaidMarker || Boolean(row.is_paid);
+      const displayItems = rawItems.filter((item: any) => item.product_name !== "__PAID__");
+
+      return {
+        id: row.id,
+        shopName: row.shop_name,
+        invoiceNo: row.invoice_no,
+        invoiceDate: row.invoice_date || "",
+        gstinUin: row.gstin_uin || "",
+        totalAmount: Number(row.total_amount) || 0,
+        totalQuantity: row.total_quantity,
+        executiveName: row.executive_name,
+        companyId: row.company_id || row.brand_id,
+        companyName: row.company_name || row.brand_name,
+        brandId: row.brand_id || row.company_id,
+        brandName: row.brand_name || row.company_name,
+        status: row.executive_name ? "mapped" : "unmapped",
+        isPaid,
+        items: displayItems.map((item: any) => ({
+          id: item.id,
+          productName: item.product_name,
+          quantity: item.quantity,
+          amount: Number(item.amount) || 0,
+          companyId: item.company_id || row.company_id || row.brand_id,
+          companyName: item.company_name || row.company_name || row.brand_name,
+          brandId: item.brand_id || item.company_id || row.brand_id || row.company_id,
+          brandName: item.brand_name || item.company_name || row.brand_name || row.company_name,
+        })),
+      };
+    });
 }
 
 /**
@@ -532,18 +542,43 @@ export async function toggleInvoicePaymentStatus(
     try {
       const supabase = createClient();
       if (supabase) {
+        if (isPaid) {
+          const { data: existing } = await supabase
+            .from("collection_items")
+            .select("id")
+            .eq("shop_collection_id", invoiceId)
+            .eq("product_name", "__PAID__")
+            .maybeSingle();
+
+          if (!existing) {
+            await supabase.from("collection_items").insert({
+              shop_collection_id: invoiceId,
+              product_name: "__PAID__",
+              quantity: "1",
+              amount: 0,
+            });
+          }
+        } else {
+          await supabase
+            .from("collection_items")
+            .delete()
+            .eq("shop_collection_id", invoiceId)
+            .eq("product_name", "__PAID__");
+        }
+
         await supabase
           .from("shop_collections")
           .update({ is_paid: isPaid } as any)
           .eq("id", invoiceId);
       }
     } catch {
-      // Ignored if is_paid column does not exist yet in remote schema
+      // Ignored if column or operation fails
     }
   }
 
   return true;
 }
+
 
 /**
  * Fetch collections for a specific executive

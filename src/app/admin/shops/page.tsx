@@ -26,6 +26,7 @@ export default function AdminShopsPage() {
   const [showExcelImport, setShowExcelImport] = React.useState(false);
   const [deletingShopId, setDeletingShopId] = React.useState<string | null>(null);
   const [notification, setNotification] = React.useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = React.useState<"ALL" | "MAPPED" | "UNMAPPED">("ALL");
 
   const showNotice = (msg: string) => {
     setNotification(msg);
@@ -134,26 +135,55 @@ export default function AdminShopsPage() {
         </div>
       )}
 
-      {/* Summary stats */}
+      {/* Summary stats with one-click quick filtering */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="border border-border p-2.5 rounded bg-card">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Total Shops</div>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("ALL")}
+          className={`p-2.5 rounded text-left transition-all border cursor-pointer ${
+            statusFilter === "ALL"
+              ? "border-primary bg-primary/5 ring-1 ring-primary/40 shadow-2xs"
+              : "border-border bg-card hover:bg-muted/40"
+          }`}
+          title="Filter all shops"
+        >
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Total Shops</div>
           <div className="font-mono text-base font-bold text-foreground mt-0.5">
             {isLoading ? "..." : shops.length}
           </div>
-        </div>
-        <div className="border border-border p-2.5 rounded bg-card">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Mapped to Executives</div>
-          <div className="font-mono text-base font-bold text-foreground mt-0.5">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter("MAPPED")}
+          className={`p-2.5 rounded text-left transition-all border cursor-pointer ${
+            statusFilter === "MAPPED"
+              ? "border-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/40 shadow-2xs"
+              : "border-border bg-card hover:bg-muted/40"
+          }`}
+          title="Filter mapped shops"
+        >
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Mapped to Executives</div>
+          <div className="font-mono text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
             {isLoading ? "..." : mappedCount}
           </div>
-        </div>
-        <div className="border border-border p-2.5 rounded bg-card">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Unmapped</div>
-          <div className="font-mono text-base font-bold text-muted-foreground mt-0.5">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter("UNMAPPED")}
+          className={`p-2.5 rounded text-left transition-all border cursor-pointer ${
+            statusFilter === "UNMAPPED"
+              ? "border-amber-500 bg-amber-500/10 ring-1 ring-amber-500/40 shadow-2xs"
+              : "border-border bg-card hover:bg-muted/40"
+          }`}
+          title="Filter unmapped shops"
+        >
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Unmapped</div>
+          <div className="font-mono text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
             {isLoading ? "..." : unmappedCount}
           </div>
-        </div>
+        </button>
       </div>
 
       {showAddForm && (
@@ -171,6 +201,8 @@ export default function AdminShopsPage() {
         onUpdateExecutive={handleUpdateExecutive}
         onDeleteShop={handleDeleteShop}
         deletingShopId={deletingShopId}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
       />
 
       <ExcelShopImportDialog

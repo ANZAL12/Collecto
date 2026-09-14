@@ -127,3 +127,63 @@ export function getAvailableInvoiceMonths(invoices: { invoiceDate?: string; date
     return b.month - a.month;
   });
 }
+
+/**
+ * Checks whether an invoice date string corresponds to today's calendar date.
+ * Strictly matches the invoice date (e.g. 14-Sep-26, 14-Sep-2026, 2026-09-14).
+ * Does not fall back to database upload timestamp (created_at).
+ */
+export function isInvoiceDateToday(invoiceDate?: string): boolean {
+  if (!invoiceDate || !invoiceDate.trim()) return false;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth(); // 0-11
+  const currentDay = now.getDate(); // 1-31
+
+  const s = invoiceDate.trim();
+
+  // Pattern 1: DD-MMM-YY or DD-MMM-YYYY (e.g. 14-Sep-26, 14-Sep-2026, 1-Sep-26)
+  const ddMmmMatch = s.match(/^(\d{1,2})[-/ ]([a-zA-Z]+)[-/ ](\d{2,4})$/);
+  if (ddMmmMatch) {
+    const day = parseInt(ddMmmMatch[1], 10);
+    const monthStr = ddMmmMatch[2].toLowerCase();
+    let year = parseInt(ddMmmMatch[3], 10);
+    if (year < 100) year += 2000;
+    if (monthStr in MONTH_MAP) {
+      return day === currentDay && MONTH_MAP[monthStr] === currentMonthIdx && year === currentYear;
+    }
+    return false;
+  }
+
+  // Pattern 2: YYYY-MM-DD
+  const ymdMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10);
+    const day = parseInt(ymdMatch[3], 10);
+    return year === currentYear && month === currentMonthIdx + 1 && day === currentDay;
+  }
+
+  // Pattern 3: DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10);
+    const year = parseInt(dmyMatch[3], 10);
+    return year === currentYear && month === currentMonthIdx + 1 && day === currentDay;
+  }
+
+  // Fallback standard Date parsing
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return (
+      parsed.getFullYear() === currentYear &&
+      parsed.getMonth() === currentMonthIdx &&
+      parsed.getDate() === currentDay
+    );
+  }
+
+  return false;
+}
+

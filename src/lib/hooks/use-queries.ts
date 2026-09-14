@@ -393,7 +393,31 @@ export function useTogglePaymentStatusMutation(activeExecutive?: string) {
       }
       return toggleInvoicePaymentStatus(invoiceId, isPaid);
     },
-    onSuccess: () => {
+    onMutate: async ({ invoiceId, isPaid }) => {
+      const exec = activeExecutive;
+      if (!exec) return {};
+
+      const queryKey = QUERY_KEYS.executiveCollections(exec);
+      await queryClient.cancelQueries({ queryKey });
+      const prevData = queryClient.getQueryData<any>(queryKey);
+
+      if (prevData && Array.isArray(prevData.collections)) {
+        queryClient.setQueryData(queryKey, {
+          ...prevData,
+          collections: prevData.collections.map((c: any) =>
+            c.id === invoiceId ? { ...c, isPaid } : c
+          ),
+        });
+      }
+
+      return { prevData, queryKey };
+    },
+    onError: (err, vars, context) => {
+      if (context?.queryKey && context?.prevData) {
+        queryClient.setQueryData(context.queryKey, context.prevData);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
       if (activeExecutive) {
         queryClient.invalidateQueries({
@@ -403,3 +427,4 @@ export function useTogglePaymentStatusMutation(activeExecutive?: string) {
     },
   });
 }
+

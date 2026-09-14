@@ -86,32 +86,41 @@ export async function GET(req: Request) {
 
     const collections: ShopCollection[] = (colData || [])
       .filter((row: any) => !isCancelledOrInvalidShop(row.shop_name))
-      .map((row: any) => ({
-        id: row.id,
-        shopName: row.shop_name,
-        invoiceNo: row.invoice_no,
-        invoiceDate: row.invoice_date || "",
-        gstinUin: row.gstin_uin || "",
-        totalAmount: Number(row.total_amount) || 0,
-        totalQuantity: row.total_quantity,
-        executiveName: row.executive_name,
-        companyId: row.company_id || row.brand_id,
-        companyName: row.company_name || row.brand_name,
-        brandId: row.brand_id || row.company_id,
-        brandName: row.brand_name || row.company_name,
-        status: "mapped" as const,
-        isPaid: Boolean((row as any).is_paid || false),
-        items: (row.collection_items || []).map((item: any) => ({
-          id: item.id,
-          productName: item.product_name,
-          quantity: item.quantity,
-          amount: Number(item.amount) || 0,
-          companyId: item.company_id || row.company_id || row.brand_id,
-          companyName: item.company_name || row.company_name || row.brand_name,
-          brandId: item.brand_id || item.company_id || row.brand_id || row.company_id,
-          brandName: item.brand_name || item.company_name || row.brand_name || row.company_name,
-        })),
-      }));
+      .map((row: any) => {
+        const rawItems = row.collection_items || [];
+        const hasPaidMarker = rawItems.some((item: any) => item.product_name === "__PAID__");
+        const isPaid = hasPaidMarker || Boolean((row as any).is_paid || false);
+        const displayItems = rawItems.filter((item: any) => item.product_name !== "__PAID__");
+
+        return {
+          id: row.id,
+          shopName: row.shop_name,
+          invoiceNo: row.invoice_no,
+          invoiceDate: row.invoice_date || "",
+          createdAt: row.created_at || "",
+          gstinUin: row.gstin_uin || "",
+          totalAmount: Number(row.total_amount) || 0,
+          totalQuantity: row.total_quantity,
+          executiveName: row.executive_name,
+          companyId: row.company_id || row.brand_id,
+          companyName: row.company_name || row.brand_name,
+          brandId: row.brand_id || row.company_id,
+          brandName: row.brand_name || row.company_name,
+          status: "mapped" as const,
+          isPaid,
+          items: displayItems.map((item: any) => ({
+            id: item.id,
+            productName: item.product_name,
+            quantity: item.quantity,
+            amount: Number(item.amount) || 0,
+            companyId: item.company_id || row.company_id || row.brand_id,
+            companyName: item.company_name || row.company_name || row.brand_name,
+            brandId: item.brand_id || item.company_id || row.brand_id || row.company_id,
+            brandName: item.brand_name || item.company_name || row.brand_name || row.company_name,
+          })),
+        };
+      });
+
 
     // 2. Fetch shop mappings specifically matching this executive
     const { data: mapRows, error: mapErr } = await supabase

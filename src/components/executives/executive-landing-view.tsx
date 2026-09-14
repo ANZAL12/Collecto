@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ShopCollection, UserSession, CollectionItem } from "@/types";
 import { LogOut } from "lucide-react";
 import { getExecutiveCompanies } from "@/lib/executive-utils";
-import { parseInvoiceMonth, getAvailableInvoiceMonths } from "@/lib/date-utils";
+import { parseInvoiceMonth, getAvailableInvoiceMonths, isInvoiceDateToday } from "@/lib/date-utils";
 import { isDesktopApp, isWebAdminUnlocked } from "@/lib/desktop-utils";
 
 export interface ShopCardData {
@@ -74,6 +74,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   const [adminSelectedExec, setAdminSelectedExec] = React.useState<string>(() => urlParamName || "");
   const [selectedCompanyFilter, setSelectedCompanyFilter] = React.useState<string>("all");
   const [selectedMonthFilter, setSelectedMonthFilter] = React.useState<string>("all");
+  const [showTodayOnly, setShowTodayOnly] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     if (urlParamName) {
@@ -117,6 +118,11 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
     return getAvailableInvoiceMonths(executiveCollections);
   }, [executiveCollections]);
 
+  // Total count of bills for today
+  const todayInvoicesCount = React.useMemo(() => {
+    return executiveCollections.filter((c) => isInvoiceDateToday(c.invoiceDate)).length;
+  }, [executiveCollections]);
+
   // Shops assigned to this executive (STRICT: isolated on server)
   const executiveShops = React.useMemo(() => {
     return portalData?.shops || [];
@@ -143,7 +149,9 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
   React.useEffect(() => {
     setSelectedCompanyFilter("all");
     setSelectedMonthFilter("all");
+    setShowTodayOnly(false);
   }, [activeExecutive]);
+
 
   // Group collections under each shop
   const shops: ShopCardData[] = React.useMemo(() => {
@@ -214,9 +222,20 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
         });
       }
 
+      // 3. If filtering by today's bills, filter invoices to today only
+      if (showTodayOnly) {
+        invoices = invoices.filter((inv) =>
+          isInvoiceDateToday(inv.invoiceDate)
+        );
+      }
+
       // Filter shop visibility:
-      // If filtering by month, only include shops that have sales in that month
-      if (selectedMonthFilter && selectedMonthFilter !== "all") {
+      // If filtering by today, only include shops that have bills from today
+      if (showTodayOnly) {
+        if (invoices.length === 0) {
+          return;
+        }
+      } else if (selectedMonthFilter && selectedMonthFilter !== "all") {
         if (invoices.length === 0) {
           return;
         }
@@ -257,7 +276,8 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
       if (a.totalAmount === 0 && b.totalAmount > 0) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [executiveShops, executiveCollections, selectedCompanyFilter, selectedMonthFilter]);
+  }, [executiveShops, executiveCollections, selectedCompanyFilter, selectedMonthFilter, showTodayOnly]);
+
 
   // Overall metrics for current active filter
   const totalFilteredSales = React.useMemo(() => {
@@ -432,13 +452,24 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                     <div className="flex items-center gap-1.5 bg-background border border-border rounded-lg px-2 py-1 shadow-2xs ml-auto shrink-0">
                       <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
                       <select
-                        value={selectedMonthFilter}
-                        onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                        value={showTodayOnly ? "today" : selectedMonthFilter}
+                        onChange={(e) => {
+                          if (e.target.value === "today") {
+                            setShowTodayOnly(true);
+                            setSelectedMonthFilter("all");
+                          } else {
+                            setShowTodayOnly(false);
+                            setSelectedMonthFilter(e.target.value);
+                          }
+                        }}
                         className="text-[11px] font-mono bg-transparent border-0 font-medium text-foreground focus:outline-none cursor-pointer pr-1"
                         aria-label="Filter by month"
                       >
                         <option value="all">
                           All Months ({availableMonths.reduce((acc, m) => acc + (m.count || 0), 0)})
+                        </option>
+                        <option value="today">
+                          Today&apos;s Bills ({todayInvoicesCount})
                         </option>
                         {availableMonths.map((m) => (
                           <option key={m.key} value={m.key}>
@@ -448,6 +479,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                       </select>
                     </div>
                   )}
+
                 </div>
 
                 {/* Company filter chips if multiple companies */}
@@ -512,8 +544,64 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
           )}
         </div>
 
+        {/* Quick Filter Toolbar */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => {
+              setShowTodayOnly((prev) => {
+                const next = !prev;
+                if (next) setSelectedMonthFilter("all");
+                return next;
+              });
+            }}
+            className={`h-7 px-2.5 rounded-lg text-xs font-mono font-medium shrink-0 transition-all border flex items-center gap-1.5 shadow-2xs ${
+              showTodayOnly
+                ? "bg-amber-500 text-white border-amber-600 dark:bg-amber-600 dark:border-amber-700 ring-2 ring-amber-500/20"
+                : "bg-card text-foreground border-border hover:bg-muted/70 hover:border-border"
+            }`}
+          >
+            <Clock className={`h-3.5 w-3.5 ${showTodayOnly ? "text-white" : "text-amber-500"} shrink-0`} />
+            <span>Today&apos;s Bills</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold font-mono ${
+                showTodayOnly
+                  ? "bg-white/25 text-white"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {todayInvoicesCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Active Today's Bills Sales Summary Banner */}
+        {showTodayOnly && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs shadow-2xs animate-in fade-in">
+            <div className="flex items-center gap-1.5 font-medium text-foreground min-w-0">
+              <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+              <span className="truncate font-semibold">
+                Today&apos;s Bills:
+              </span>
+              <span className="font-bold font-mono text-amber-600 dark:text-amber-400 shrink-0">
+                {formatCurrency(totalFilteredSales)}
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                ({totalFilteredBills} {totalFilteredBills === 1 ? "bill" : "bills"} across {filteredShops.length} {filteredShops.length === 1 ? "shop" : "shops"})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowTodayOnly(false)}
+              className="text-[11px] font-mono text-amber-600 dark:text-amber-400 hover:underline ml-2 shrink-0 font-medium"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {/* Active Month Sales Summary Banner */}
-        {selectedMonthFilter !== "all" && (
+        {selectedMonthFilter !== "all" && !showTodayOnly && (
           <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-xs shadow-2xs animate-in fade-in">
             <div className="flex items-center gap-1.5 font-medium text-foreground min-w-0">
               <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -547,6 +635,8 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
             <p className="text-xs text-muted-foreground">
               {searchQuery
                 ? `No shops found matching "${searchQuery}"`
+                : showTodayOnly
+                ? "No bills recorded for today."
                 : selectedMonthFilter !== "all"
                 ? `No sales recorded in ${availableMonths.find((m) => m.key === selectedMonthFilter)?.label || selectedMonthFilter}.`
                 : selectedCompanyFilter !== "all"
@@ -555,7 +645,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                 ? `No shops assigned to ${activeExecutive} yet. Contact admin to assign shops.`
                 : "No shops assigned to your account."}
             </p>
-            {(searchQuery || selectedCompanyFilter !== "all" || selectedMonthFilter !== "all") && (
+            {(searchQuery || selectedCompanyFilter !== "all" || selectedMonthFilter !== "all" || showTodayOnly) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -563,6 +653,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
                   setSearchQuery("");
                   setSelectedCompanyFilter("all");
                   setSelectedMonthFilter("all");
+                  setShowTodayOnly(false);
                 }}
                 className="h-7 text-xs font-mono"
               >
@@ -571,6 +662,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
             )}
           </div>
         ) : (
+
           <div className="space-y-2.5">
             {filteredShops.map((shop) => {
               const isExpanded = expandedShopNames.has(shop.name);

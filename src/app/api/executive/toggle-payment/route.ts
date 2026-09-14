@@ -40,20 +40,48 @@ export async function POST(req: Request) {
       }
     }
 
-    try {
-      const { error } = await supabase
-        .from("shop_collections")
-        .update({ is_paid: Boolean(isPaid) } as any)
-        .eq("id", invoiceId);
+    const shouldBePaid = Boolean(isPaid);
 
-      if (error) {
-        console.warn("Could not update is_paid column (may not exist):", error.message);
+    // 1. Persist payment status via collection_items marker (guaranteed supported in Supabase schema)
+    try {
+      if (shouldBePaid) {
+        const { data: existing } = await supabase
+          .from("collection_items")
+          .select("id")
+          .eq("shop_collection_id", invoiceId)
+          .eq("product_name", "__PAID__")
+          .maybeSingle();
+
+        if (!existing) {
+          await supabase.from("collection_items").insert({
+            shop_collection_id: invoiceId,
+            product_name: "__PAID__",
+            quantity: "1",
+            amount: 0,
+          });
+        }
+      } else {
+        await supabase
+          .from("collection_items")
+          .delete()
+          .eq("shop_collection_id", invoiceId)
+          .eq("product_name", "__PAID__");
       }
-    } catch (err: any) {
-      console.warn("Error updating is_paid in DB:", err);
+    } catch (markerErr: any) {
+      console.warn("Could not sync collection_items payment marker:", markerErr?.message || markerErr);
     }
 
-    return Response.json({ success: true, invoiceId, isPaid: Boolean(isPaid) });
+    // 2. Also update native is_paid column on shop_collections if column is present in DB
+    try {
+      await supabase
+        .from("shop_collections")
+        .update({ is_paid: shouldBePaid } as any)
+        .eq("id", invoiceId);
+    } catch {
+      // Safely ignore if column does not exist yet
+    }
+
+    return Response.json({ success: true, invoiceId, isPaid: shouldBePaid });
   } catch (err: any) {
     console.error("Toggle payment API error:", err);
     return Response.json(

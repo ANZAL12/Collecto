@@ -102,7 +102,9 @@ alter table public.shop_collections
   add column if not exists company_id uuid references public.companies(id) on delete cascade,
   add column if not exists company_name text,
   add column if not exists brand_id uuid references public.companies(id) on delete cascade,
-  add column if not exists brand_name text;
+  add column if not exists brand_name text,
+  add column if not exists is_paid boolean default false;
+
 
 alter table public.collection_items
   add column if not exists company_id uuid references public.companies(id) on delete cascade,

@@ -92,6 +92,7 @@ export interface ShopCollection {
   shopName: string;
   invoiceNo: string;
   invoiceDate: string;
+  createdAt?: string;
   gstinUin?: string;
   totalAmount: number;
   totalQuantity?: string | number;

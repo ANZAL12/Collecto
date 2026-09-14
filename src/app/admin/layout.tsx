@@ -31,15 +31,17 @@ export default function AdminLayout({
   const [authorized, setAuthorized] = React.useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
-  // Strictly block /admin routes on web with 404 (only desktop is allowed)
-  if (pathname.startsWith("/admin") && !isDesktopApp()) {
-    notFound();
-  }
-
   React.useEffect(() => {
+    // Strictly block direct /admin routes on web with 404 (only desktop is allowed)
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isDesktopApp()) {
+      notFound();
+      return;
+    }
+
     const session = getCurrentSession();
     if (!session || session.role !== "admin") {
-      router.replace("/login");
+      const target = isDesktopApp() ? "/login" : "/login?admin=true";
+      router.replace(target);
     } else {
       setAuthorized(true);
     }

@@ -2,16 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, User, AlertCircle } from "lucide-react";
+import { ArrowRight, Lock, User, AlertCircle, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { authenticate } from "@/lib/auth-service";
+import { authenticate, getCurrentSession } from "@/lib/auth-service";
 import { useExecutives } from "@/lib/hooks/use-queries";
 import { UserSession } from "@/types";
-import { isDesktopApp, isWebAdminUnlocked } from "@/lib/desktop-utils";
+import { isDesktopApp, isWebAdminUnlocked, unlockWebAdmin } from "@/lib/desktop-utils";
 
 interface LoginPageProps {
   onLoginSuccess?: (session: UserSession) => void;
@@ -29,15 +29,36 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
   const [isAdminUnlocked, setIsAdminUnlocked] = React.useState(false);
 
   React.useEffect(() => {
-    setIsDesktop(isDesktopApp());
-    setIsAdminUnlocked(isDesktopApp() || isWebAdminUnlocked());
+    const desktop = isDesktopApp();
+    setIsDesktop(desktop);
+
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
+      const isExplicitAdminParam =
+        params.get("admin") === "true" ||
+        params.get("unlocked") === "1" ||
+        params.get("role") === "admin";
+
+      if (isExplicitAdminParam) {
+        unlockWebAdmin();
+      }
+
+      const unlocked = desktop || isWebAdminUnlocked() || isExplicitAdminParam;
+      setIsAdminUnlocked(unlocked);
+
+      // If user already has an active session as admin, forward directly to dashboard
+      const existingSession = getCurrentSession();
+      if (existingSession && existingSession.role === "admin") {
+        const target = desktop ? "/admin/dashboard" : "/global/dashboard";
+        router.replace(target);
+        return;
+      }
+
       if (params.get("error") === "account_deleted") {
         setError("Your executive account has been deactivated or removed by the administrator.");
       }
     }
-  }, []);
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +70,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
 
       if (result.success && result.session) {
         if (result.session.role === "admin" && !isDesktopApp() && !isWebAdminUnlocked()) {
-          setError("Admin access is restricted to the desktop application.");
+          setError("Admin access is restricted. Please use the secret URL to access admin.");
           return;
         }
 
@@ -85,19 +106,22 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
             Collecto
           </h1>
           <p className="text-xs text-muted-foreground">
-            Sign in to access collections & field operations
+            {isAdminUnlocked
+              ? "Administrator sign in for collection operations & management"
+              : "Sign in to access collections & field operations"}
           </p>
         </div>
 
         {/* Login Card */}
         <Card className="border-border bg-card shadow-sm">
           <CardHeader className="pb-2 pt-4 px-4 border-b border-border flex flex-row items-center justify-between">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Account Login
+            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              {isAdminUnlocked && <ShieldCheck className="h-3.5 w-3.5 text-primary" />}
+              <span>{isAdminUnlocked ? "Admin Portal Sign In" : "Account Login"}</span>
             </CardTitle>
             {isAdminUnlocked && !isDesktop && (
-              <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                Admin Web Mode
+              <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                Admin Mode
               </span>
             )}
           </CardHeader>
@@ -120,7 +144,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
                   id="username"
                   type="text"
                   required
-                  placeholder={isDesktop || isAdminUnlocked ? "Enter admin Gmail / username" : "Enter your username"}
+                  placeholder={isDesktop || isAdminUnlocked ? "Enter admin Gmail" : "Enter your username"}
                   value={username}
                   onChange={(e) => {
                     setError(null);
@@ -156,12 +180,18 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
                 disabled={isSubmitting}
                 className="w-full h-9 text-xs font-medium gap-1.5"
               >
-                <span>{isSubmitting ? "Signing in..." : "Sign In"}</span>
+                <span>
+                  {isSubmitting
+                    ? "Signing in..."
+                    : isAdminUnlocked
+                    ? "Sign In to Admin Portal"
+                    : "Sign In"}
+                </span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
 
               <p className="text-[11px] text-muted-foreground text-center pt-1 border-t border-border/50 w-full">
-                Forgot password? Contact admin
+                Forgot password? Contact system administrator
               </p>
             </CardFooter>
           </form>

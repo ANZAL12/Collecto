@@ -4,9 +4,16 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. If someone accesses /global or /global/, redirect to /global/dashboard
+  // 1. If someone accesses /global or /global/, unlock admin cookie and redirect directly to admin login page
   if (pathname === "/global" || pathname === "/global/") {
-    return NextResponse.redirect(new URL("/global/dashboard", request.url));
+    const redirectUrl = new URL("/login?admin=true", request.url);
+    const response = NextResponse.redirect(redirectUrl);
+    response.cookies.set("collecto_admin_unlocked", "1", {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365, // 1 year persistence
+      sameSite: "lax",
+    });
+    return response;
   }
 
   // 2. Strictly block /admin and all /admin/* sub-routes on web with the custom 404 page

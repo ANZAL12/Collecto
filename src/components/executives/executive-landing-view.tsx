@@ -357,7 +357,7 @@ export function ExecutiveLandingView({ session: propSession, onLogout }: Executi
               </select>
             </div>
             <a
-              href="/admin/dashboard"
+              href={isDesktopApp() ? "/admin/dashboard" : "/global/dashboard"}
               className="text-[11px] font-mono font-medium text-foreground hover:underline"
             >
               Admin Portal &rarr;

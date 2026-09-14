@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, notFound } from "next/navigation";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { getCurrentSession } from "@/lib/auth-service";
+import { isDesktopApp } from "@/lib/desktop-utils";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { QUERY_KEYS } from "@/lib/hooks/use-queries";
@@ -25,9 +26,15 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
   const [authorized, setAuthorized] = React.useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+
+  // Strictly block /admin routes on web with 404 (only desktop is allowed)
+  if (pathname.startsWith("/admin") && !isDesktopApp()) {
+    notFound();
+  }
 
   React.useEffect(() => {
     const session = getCurrentSession();
@@ -41,15 +48,16 @@ export default function AdminLayout({
   // Eagerly prefetch all admin routes and data into memory so tab switching is instantaneous
   React.useEffect(() => {
     if (authorized) {
+      const basePath = pathname.startsWith("/global") ? "/global" : "/admin";
       const routes = [
-        "/admin/dashboard",
-        "/admin/upload-history",
-        "/admin/mappings",
-        "/admin/companies",
-        "/admin/executives",
-        "/admin/shops",
-        "/admin/collections",
-        "/admin/settings",
+        `${basePath}/dashboard`,
+        `${basePath}/upload-history`,
+        `${basePath}/mappings`,
+        `${basePath}/companies`,
+        `${basePath}/executives`,
+        `${basePath}/shops`,
+        `${basePath}/collections`,
+        `${basePath}/settings`,
       ];
       routes.forEach((route) => {
         try {

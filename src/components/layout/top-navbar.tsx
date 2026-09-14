@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Menu, LogOut, Smartphone, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -16,6 +16,8 @@ interface TopNavbarProps {
 
 export function TopNavbar({ onOpenMobileMenu, role }: TopNavbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith("/global") ? "/global" : "/admin";
   const [user, setUser] = React.useState<UserSession | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
 
@@ -69,7 +71,7 @@ export function TopNavbar({ onOpenMobileMenu, role }: TopNavbarProps) {
 
           {role === "admin" && (
             <Link
-              href="/admin/companies"
+              href={`${basePath}/companies`}
               prefetch={true}
               className="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1 bg-card hover:bg-muted transition-colors"
               title="Manage Companies / Brands"

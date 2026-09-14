@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ErpContainer } from "@/components/layout/erp-container";
 import { ExcelDropzone } from "@/components/upload/excel-dropzone";
 import { UploadStatus } from "@/components/upload/upload-status";
@@ -54,6 +55,9 @@ import { cn } from "@/lib/utils";
 import { useUploadDraft } from "@/lib/upload-draft-context";
 
 export default function AdminDashboardPage() {
+  const pathname = usePathname();
+  const basePath = pathname?.startsWith("/global") ? "/global" : "/admin";
+
   const {
     validationResult,
     setValidationResult,
@@ -558,14 +562,14 @@ export default function AdminDashboardPage() {
               </span>
               <div className="flex items-center gap-2">
                 <Link
-                  href="/admin/collections"
+                  href={`${basePath}/collections`}
                   className="font-medium underline hover:text-emerald-700 dark:hover:text-emerald-300"
                 >
                   View Collections
                 </Link>
                 <span>•</span>
                 <Link
-                  href="/admin/upload-history"
+                  href={`${basePath}/upload-history`}
                   className="font-medium underline hover:text-emerald-700 dark:hover:text-emerald-300"
                 >
                   View History
@@ -583,7 +587,7 @@ export default function AdminDashboardPage() {
             Recent Upload History
           </CardTitle>
           <Link
-            href="/admin/upload-history"
+            href={`${basePath}/upload-history`}
             className="text-[11px] font-mono text-muted-foreground hover:text-foreground"
           >
             View All ({recentBatches.length})

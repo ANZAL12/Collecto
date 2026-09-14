@@ -12,6 +12,19 @@ const nextConfig: NextConfig = {
     "127.0.0.1:3000",
     "192.168.1.4",
   ],
+  async rewrites() {
+    return [
+      {
+        source: "/global",
+        destination: "/admin/dashboard",
+      },
+      {
+        source: "/global/:path*",
+        destination: "/admin/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;
+

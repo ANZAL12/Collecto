@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Building2 } from "lucide-react";
 import { useCompanies } from "@/lib/hooks/use-queries";
 import { Company } from "@/types";
@@ -131,7 +132,7 @@ export function CompanySelectBar({
         <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px] text-amber-600 dark:text-amber-400">
           <span>No company selected. Please select a company before uploading.</span>
           <Link
-            href="/admin/companies"
+            href={`${typeof window !== "undefined" && window.location.pathname.startsWith("/global") ? "/global" : "/admin"}/companies`}
             className="underline font-medium hover:text-amber-700"
           >
             Go to Companies

@@ -15,48 +15,47 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NavItem } from "@/types";
 import { useUploadDraft } from "@/lib/upload-draft-context";
 
-export const adminNavItems: NavItem[] = [
+export const adminNavConfigs = [
   {
     title: "Upload Sale Details",
-    href: "/admin/dashboard",
+    path: "/dashboard",
     icon: UploadCloud,
   },
   {
     title: "Upload History",
-    href: "/admin/upload-history",
+    path: "/upload-history",
     icon: FileClock,
   },
   {
     title: "Shop Mappings",
-    href: "/admin/mappings",
+    path: "/mappings",
     icon: GitFork,
   },
   {
     title: "Companies",
-    href: "/admin/companies",
+    path: "/companies",
     icon: Building2,
   },
   {
     title: "Executives",
-    href: "/admin/executives",
+    path: "/executives",
     icon: Users,
   },
   {
     title: "Shops",
-    href: "/admin/shops",
+    path: "/shops",
     icon: Store,
   },
   {
     title: "Collections",
-    href: "/admin/collections",
+    path: "/collections",
     icon: TableProperties,
   },
   {
     title: "Settings",
-    href: "/admin/settings",
+    path: "/settings",
     icon: Settings,
   },
 ];
@@ -69,6 +68,8 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) {
   const pathname = usePathname();
+  const basePath = pathname?.startsWith("/global") ? "/global" : "/admin";
+
   let hasUploadDraft = false;
   try {
     const draft = useUploadDraft();
@@ -95,7 +96,7 @@ export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) 
         {/* Brand Bar */}
         <div className="flex h-12 items-center justify-between border-b border-border px-4">
           <Link
-            href="/admin/dashboard"
+            href={`${basePath}/dashboard`}
             className="flex items-center gap-2 font-semibold tracking-tight text-foreground text-sm"
           >
             <span>Collecto</span>
@@ -118,16 +119,17 @@ export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) 
         {/* Navigation List */}
         <div className="flex-1 overflow-y-auto px-2 py-3">
           <nav className="space-y-0.5">
-            {adminNavItems.map((item) => {
+            {adminNavConfigs.map((item) => {
+              const fullHref = `${basePath}${item.path}`;
               const isActive =
-                pathname === item.href ||
-                (item.href !== "/admin/dashboard" && pathname.startsWith(item.href));
+                pathname === fullHref ||
+                (item.path !== "/dashboard" && pathname.startsWith(fullHref));
               const Icon = item.icon;
 
               return (
                 <Link
-                  key={item.href}
-                  href={item.href}
+                  key={item.path}
+                  href={fullHref}
                   prefetch={true}
                   onClick={onClose}
                   className={cn(
@@ -142,13 +144,9 @@ export function AdminSidebar({ isOpen, onClose, className }: AdminSidebarProps) 
                     <span className="truncate">{item.title}</span>
                   </div>
 
-                  {item.href === "/admin/dashboard" && hasUploadDraft ? (
+                  {item.path === "/dashboard" && hasUploadDraft ? (
                     <span className="flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 text-[10px] font-semibold font-mono text-amber-600 dark:text-amber-400 animate-pulse">
                       Draft
-                    </span>
-                  ) : item.badge ? (
-                    <span className="rounded border border-border px-1 text-[10px] font-mono text-muted-foreground">
-                      {item.badge}
                     </span>
                   ) : null}
                 </Link>

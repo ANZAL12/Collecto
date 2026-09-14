@@ -57,7 +57,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps = {}) {
           onLoginSuccess(result.session);
         }
         if (result.session.role === "admin") {
-          router.push("/admin/dashboard");
+          const target = isDesktopApp() ? "/admin/dashboard" : "/global/dashboard";
+          router.push(target);
         } else {
           router.push("/");
         }

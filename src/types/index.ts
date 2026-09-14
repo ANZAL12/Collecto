@@ -36,6 +36,7 @@ export interface Executive {
 export interface Shop {
   id: string;
   name: string;
+  mappingId?: string;
   assignedExecutiveName?: string;
   companyId?: string;
   companyName?: string;

@@ -17,6 +17,7 @@ import {
   updateShopExecutive,
   deleteShop,
   deleteAllShops,
+  deleteShopsByIds,
   deleteUploadBatch,
   updateUploadBatchFileName,
   saveParsedCollectionsToDb,
@@ -287,7 +288,20 @@ export function useSaveCollectionsMutation() {
 export function useDeleteShopMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (shopId: string) => deleteShop(shopId),
+    mutationFn: (
+      arg:
+        | string
+        | {
+            shopId: string;
+            companyName?: string;
+            mappingId?: string;
+          }
+    ) => {
+      if (typeof arg === "string") {
+        return deleteShop(arg);
+      }
+      return deleteShop(arg.shopId, arg.companyName, arg.mappingId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
@@ -301,6 +315,28 @@ export function useDeleteAllShopsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => deleteAllShops(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopCollections });
+      queryClient.invalidateQueries({ queryKey: ["executive_collections"] });
+    },
+  });
+}
+
+export function useDeleteShopsByIdsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      arg:
+        | { shopIds: string[]; shopNames?: string[] }
+        | Shop[]
+    ) => {
+      if (Array.isArray(arg)) {
+        return deleteShopsByIds(arg);
+      }
+      return deleteShopsByIds(arg.shopIds, arg.shopNames);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });

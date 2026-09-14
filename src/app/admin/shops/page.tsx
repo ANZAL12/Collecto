@@ -4,6 +4,7 @@ import * as React from "react";
 import { ErpContainer } from "@/components/layout/erp-container";
 import { ShopTable } from "@/components/shops/shop-table";
 import { ShopForm } from "@/components/shops/shop-form";
+import { Shop } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
   useShops,
@@ -11,6 +12,7 @@ import {
   useBulkAddShopsMutation,
   useUpdateShopExecutiveMutation,
   useDeleteShopMutation,
+  useDeleteShopsByIdsMutation,
 } from "@/lib/hooks/use-queries";
 import { Plus, Check, RefreshCw, FileSpreadsheet } from "lucide-react";
 import { ExcelShopImportDialog } from "@/components/mappings/excel-shop-import-dialog";
@@ -21,6 +23,7 @@ export default function AdminShopsPage() {
   const bulkAddMutation = useBulkAddShopsMutation();
   const updateExecutiveMutation = useUpdateShopExecutiveMutation();
   const deleteShopMutation = useDeleteShopMutation();
+  const deleteShopsByIdsMutation = useDeleteShopsByIdsMutation();
 
   const [showAddForm, setShowAddForm] = React.useState(false);
   const [showExcelImport, setShowExcelImport] = React.useState(false);
@@ -66,24 +69,46 @@ export default function AdminShopsPage() {
     );
   };
 
-  const handleDeleteShop = async (shopId: string, shopName: string) => {
+  const handleDeleteShop = async (target: Shop | string, legacyShopName?: string) => {
+    const shop: Shop =
+      typeof target === "string"
+        ? { id: target, name: legacyShopName || "" }
+        : target;
+
+    const brandLabel = shop.companyName || shop.brandName ? ` [${shop.companyName || shop.brandName}]` : "";
     if (
       !window.confirm(
-        `Are you sure you want to delete shop "${shopName}"? Its executive mappings will also be removed.`
+        `Are you sure you want to delete "${shop.name}"${brandLabel}?`
       )
     ) {
       return;
     }
-    setDeletingShopId(shopId);
+
+    const itemKey = `${shop.id}_${shop.mappingId || shop.companyName || ""}`;
+    setDeletingShopId(itemKey);
     try {
-      const res = await deleteShopMutation.mutateAsync(shopId);
+      const res = await deleteShopMutation.mutateAsync({
+        shopId: shop.id,
+        companyName: shop.companyName || shop.brandName,
+        mappingId: shop.mappingId,
+      });
       if (res.success) {
-        showNotice(`Deleted shop "${shopName}"`);
+        showNotice(`Deleted "${shop.name}"${brandLabel}`);
       } else {
         alert(res.error || "Failed to delete shop");
       }
     } finally {
       setDeletingShopId(null);
+    }
+  };
+
+  const handleDeleteFilteredShops = async (shopsToDelete: Shop[]) => {
+    if (shopsToDelete.length === 0) return;
+    const res = await deleteShopsByIdsMutation.mutateAsync(shopsToDelete);
+    if (res.success) {
+      showNotice(`Successfully deleted ${res.count} ${res.count === 1 ? "shop" : "shops"}.`);
+    } else {
+      alert(res.error || "Failed to delete shops");
     }
   };
 
@@ -200,6 +225,7 @@ export default function AdminShopsPage() {
         shops={shops}
         onUpdateExecutive={handleUpdateExecutive}
         onDeleteShop={handleDeleteShop}
+        onDeleteFilteredShops={handleDeleteFilteredShops}
         deletingShopId={deletingShopId}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}

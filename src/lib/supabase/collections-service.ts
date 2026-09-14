@@ -681,6 +681,7 @@ export async function getShops(): Promise<Shop[]> {
         const compName = m.company_name || m.brand_name || s.company_name || s.brand_name;
         result.push({
           id: s.id,
+          mappingId: m.id,
           name: s.name,
           assignedExecutiveName: execName || undefined,
           companyId: compId || undefined,
@@ -1527,26 +1528,92 @@ export async function deleteUploadBatch(
 }
 
 /**
- * Delete a retail shop and its executive mappings
+ * Delete a retail shop or a specific brand mapping for that shop.
+ * If the shop has other brand mappings, only the specified brand mapping is removed
+ * without deleting the physical shop or its other brands!
  */
 export async function deleteShop(
-  shopId: string
+  shopId: string,
+  companyName?: string,
+  mappingId?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured()) return { success: false, error: "Database not configured" };
   const supabase = createClient();
   if (!supabase) return { success: false, error: "Supabase client unavailable" };
 
   try {
-    // Optional: unset executive_name from shop_collections for this shop
-    const { data: shopRecord } = await supabase.from("shops").select("name").eq("id", shopId).maybeSingle();
-    if (shopRecord?.name) {
-      await supabase.from("shop_collections").update({ executive_name: null }).eq("shop_name", shopRecord.name);
+    const { data: shopRecord } = await supabase
+      .from("shops")
+      .select("id, name, company_name, brand_name")
+      .eq("id", shopId)
+      .maybeSingle();
+
+    const shopName = shopRecord?.name;
+
+    // Fetch all current mappings for this shop
+    const { data: currentMappings } = await supabase
+      .from("shop_mappings")
+      .select("id, company_name, brand_name, executive_id")
+      .eq("shop_id", shopId);
+
+    const mappings = currentMappings || [];
+
+    // Find the specific mapping to remove
+    let targetMapping = mappingId ? mappings.find((m) => m.id === mappingId) : undefined;
+    if (!targetMapping && companyName) {
+      targetMapping = mappings.find(
+        (m) =>
+          m.company_name?.trim().toLowerCase() === companyName.trim().toLowerCase() ||
+          m.brand_name?.trim().toLowerCase() === companyName.trim().toLowerCase()
+      );
     }
 
-    // 1. Delete associated shop mappings
+    const otherMappings = mappings.filter((m) =>
+      targetMapping ? m.id !== targetMapping.id : false
+    );
+
+    // If other brand mappings exist for this shop: ONLY delete this brand mapping!
+    if (targetMapping && otherMappings.length > 0) {
+      // 1. Delete this specific mapping
+      await supabase.from("shop_mappings").delete().eq("id", targetMapping.id);
+
+      // 2. Unassign collections only for this brand
+      const brandToDelete = targetMapping.company_name || targetMapping.brand_name || companyName;
+      if (shopName && brandToDelete) {
+        await supabase
+          .from("shop_collections")
+          .update({ executive_name: null })
+          .eq("shop_name", shopName)
+          .or(`company_name.ilike.${brandToDelete},brand_name.ilike.${brandToDelete}`);
+      }
+
+      // 3. If the shop record directly pointed to this deleted company, update it to another remaining brand
+      if (
+        shopRecord?.company_name &&
+        brandToDelete &&
+        shopRecord.company_name.toLowerCase() === brandToDelete.toLowerCase()
+      ) {
+        const survivingBrand =
+          otherMappings[0]?.company_name || otherMappings[0]?.brand_name || null;
+        await supabase
+          .from("shops")
+          .update({ company_name: survivingBrand, brand_name: survivingBrand })
+          .eq("id", shopId);
+      }
+
+      return { success: true };
+    }
+
+    // Otherwise, this shop has NO other brands remaining: delete the shop entirely!
+    // 1. Unassign all collections for this shop
+    if (shopName) {
+      await supabase.from("shop_collections").update({ executive_name: null }).eq("shop_name", shopName);
+    }
+
+    // 2. Delete all mappings for this shop
     await supabase.from("shop_mappings").delete().eq("shop_id", shopId);
 
-    // 2. Delete the shop record
+    // 3. Delete the shop record
     const { error } = await supabase.from("shops").delete().eq("id", shopId);
     if (error) {
       console.error("Error deleting shop:", error);
@@ -1587,6 +1654,184 @@ export async function deleteAllShops(): Promise<{ success: boolean; error?: stri
     console.error("Delete all shops exception:", err);
     return { success: false, error: err.message || "Failed to delete all shops" };
   }
+}
+
+/**
+ * Delete a specific list of retail shops or their brand mappings.
+ * Brand-Safe: If a shop is registered under multiple brands and only one brand is deleted,
+ * only that brand mapping is removed while keeping the shop and its other brands intact!
+ */
+export async function deleteShopsBulk(
+  shopsToDelete: Array<{
+    id: string;
+    name: string;
+    companyName?: string;
+    brandName?: string;
+    mappingId?: string;
+  }>
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!isSupabaseConfigured()) return { success: false, count: 0, error: "Database not configured" };
+  const supabase = createClient();
+  if (!supabase) return { success: false, count: 0, error: "Supabase client unavailable" };
+
+  if (!shopsToDelete || shopsToDelete.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  try {
+    const CHUNK_SIZE = 100;
+
+    // 1. Group items to delete by shop_id
+    const deleteByShopId = new Map<string, Array<{ mappingId?: string; companyName?: string }>>();
+    const shopNamesMap = new Map<string, string>();
+
+    for (const item of shopsToDelete) {
+      if (!deleteByShopId.has(item.id)) {
+        deleteByShopId.set(item.id, []);
+      }
+      deleteByShopId.get(item.id)!.push({
+        mappingId: item.mappingId,
+        companyName: item.companyName || item.brandName,
+      });
+      shopNamesMap.set(item.id, item.name);
+    }
+
+    const allShopIds = Array.from(deleteByShopId.keys());
+
+    // 2. Fetch all current mappings for all these shops to identify which shops have surviving brands
+    const existingMappingsByShop = new Map<
+      string,
+      Array<{ id: string; company_name?: string; brand_name?: string }>
+    >();
+
+    for (let i = 0; i < allShopIds.length; i += CHUNK_SIZE) {
+      const chunk = allShopIds.slice(i, i + CHUNK_SIZE);
+      const { data: mappingsData } = await supabase
+        .from("shop_mappings")
+        .select("id, shop_id, company_name, brand_name")
+        .in("shop_id", chunk);
+
+      for (const m of mappingsData || []) {
+        if (!existingMappingsByShop.has(m.shop_id)) {
+          existingMappingsByShop.set(m.shop_id, []);
+        }
+        existingMappingsByShop.get(m.shop_id)!.push(m);
+      }
+    }
+
+    const mappingIdsToDelete: string[] = [];
+    const shopIdsToDeleteCompletely: string[] = [];
+    const brandsToUnassignByShopName = new Map<string, Set<string>>();
+    const shopsToUnassignCompletely: string[] = [];
+
+    for (const [shopId, itemsToDelete] of deleteByShopId.entries()) {
+      const shopName = shopNamesMap.get(shopId) || "";
+      const currentMappings = existingMappingsByShop.get(shopId) || [];
+
+      // Determine target mapping IDs and target brands for this shop
+      const targetMappingIds = new Set<string>();
+      const targetBrands = new Set<string>();
+
+      for (const it of itemsToDelete) {
+        if (it.mappingId) {
+          targetMappingIds.add(it.mappingId);
+        }
+        if (it.companyName) {
+          targetBrands.add(it.companyName.trim().toLowerCase());
+        }
+      }
+
+      // If mappingId wasn't provided, match mappings by company name
+      for (const m of currentMappings) {
+        const cName = (m.company_name || m.brand_name || "").trim().toLowerCase();
+        if (cName && targetBrands.has(cName)) {
+          targetMappingIds.add(m.id);
+        }
+      }
+
+      // Check which mappings survive for this shop
+      const survivingMappings = currentMappings.filter((m) => !targetMappingIds.has(m.id));
+
+      for (const mId of targetMappingIds) {
+        mappingIdsToDelete.push(mId);
+      }
+
+      if (survivingMappings.length > 0) {
+        // This shop HAS OTHER BRANDS!
+        // DO NOT delete the shop from the shops table!
+        if (!brandsToUnassignByShopName.has(shopName)) {
+          brandsToUnassignByShopName.set(shopName, new Set());
+        }
+        for (const b of targetBrands) {
+          brandsToUnassignByShopName.get(shopName)!.add(b);
+        }
+      } else {
+        // No other brands survive for this shop -> safe to delete completely from shops table
+        shopIdsToDeleteCompletely.push(shopId);
+        if (shopName) shopsToUnassignCompletely.push(shopName);
+      }
+    }
+
+    // 3. Delete the target mappings
+    for (let i = 0; i < mappingIdsToDelete.length; i += CHUNK_SIZE) {
+      const chunk = mappingIdsToDelete.slice(i, i + CHUNK_SIZE);
+      await supabase.from("shop_mappings").delete().in("id", chunk);
+    }
+
+    // 4. Unassign collections for surviving shops (only for the deleted brands)
+    for (const [shopName, brands] of brandsToUnassignByShopName.entries()) {
+      for (const b of brands) {
+        await supabase
+          .from("shop_collections")
+          .update({ executive_name: null })
+          .eq("shop_name", shopName)
+          .or(`company_name.ilike.${b},brand_name.ilike.${b}`);
+      }
+    }
+
+    // 5. Unassign collections for shops that are being deleted completely
+    for (let i = 0; i < shopsToUnassignCompletely.length; i += CHUNK_SIZE) {
+      const chunk = shopsToUnassignCompletely.slice(i, i + CHUNK_SIZE);
+      await supabase.from("shop_collections").update({ executive_name: null }).in("shop_name", chunk);
+    }
+
+    // 6. Delete shops from shops table that have no other brands
+    for (let i = 0; i < shopIdsToDeleteCompletely.length; i += CHUNK_SIZE) {
+      const chunk = shopIdsToDeleteCompletely.slice(i, i + CHUNK_SIZE);
+      await supabase.from("shop_mappings").delete().in("shop_id", chunk);
+      await supabase.from("shops").delete().in("id", chunk);
+    }
+
+    return { success: true, count: shopsToDelete.length };
+  } catch (err: any) {
+    console.error("Delete shops bulk exception:", err);
+    return { success: false, count: 0, error: err.message || "Failed to delete shops" };
+  }
+}
+
+/**
+ * Delete a specific list of retail shops and their executive mappings by IDs or Shop items
+ */
+export async function deleteShopsByIds(
+  shopIdsOrItems:
+    | string[]
+    | Array<{ id: string; name: string; companyName?: string; brandName?: string; mappingId?: string }>,
+  shopNames?: string[]
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (
+    Array.isArray(shopIdsOrItems) &&
+    shopIdsOrItems.length > 0 &&
+    typeof shopIdsOrItems[0] !== "string"
+  ) {
+    return deleteShopsBulk(shopIdsOrItems as any);
+  }
+
+  const stringIds = (shopIdsOrItems as string[]) || [];
+  const items = stringIds.map((id, idx) => ({
+    id,
+    name: shopNames?.[idx] || "",
+  }));
+  return deleteShopsBulk(items);
 }
 
 /**

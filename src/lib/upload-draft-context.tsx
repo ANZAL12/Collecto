@@ -22,6 +22,9 @@ interface UploadDraftContextType extends UploadDraftState {
   setShowWarningsOnly: React.Dispatch<React.SetStateAction<boolean>>;
   setIsCommitted: (val: boolean) => void;
   updateShopExecutive: (shopId: string, newExecutiveName: string | undefined) => void;
+  deleteShopCollection: (shopId: string) => void;
+  deleteMultipleShopCollections: (shopIds: string[]) => void;
+  deleteCollectionItem: (shopId: string, itemIndex: number) => void;
   clearDraft: () => void;
 }
 
@@ -111,6 +114,99 @@ export function UploadDraftProvider({ children }: { children: React.ReactNode })
     []
   );
 
+  const deleteShopCollection = React.useCallback((shopId: string) => {
+    setValidationResult((prev) => {
+      if (!prev) return prev;
+      const updatedCollections = prev.collections.filter(
+        (col) => col.id !== shopId && `${col.shopName}_${col.invoiceNo}` !== shopId
+      );
+
+      const newTotalItems = updatedCollections.reduce(
+        (sum, c) => sum + (c.items?.length || 0),
+        0
+      );
+      const newWarningCount = updatedCollections.filter(
+        (c) => !c.executiveName || c.status === "unmapped"
+      ).length;
+
+      return {
+        ...prev,
+        collections: updatedCollections,
+        groupedShops: updatedCollections,
+        totalShops: updatedCollections.length,
+        totalItems: newTotalItems,
+        validRows: updatedCollections.length,
+        totalRows: updatedCollections.length,
+        warningRows: newWarningCount,
+      };
+    });
+  }, []);
+
+  const deleteMultipleShopCollections = React.useCallback((shopIds: string[]) => {
+    const idSet = new Set(shopIds);
+    setValidationResult((prev) => {
+      if (!prev) return prev;
+      const updatedCollections = prev.collections.filter(
+        (col) => !idSet.has(col.id) && !idSet.has(`${col.shopName}_${col.invoiceNo}`)
+      );
+
+      const newTotalItems = updatedCollections.reduce(
+        (sum, c) => sum + (c.items?.length || 0),
+        0
+      );
+      const newWarningCount = updatedCollections.filter(
+        (c) => !c.executiveName || c.status === "unmapped"
+      ).length;
+
+      return {
+        ...prev,
+        collections: updatedCollections,
+        groupedShops: updatedCollections,
+        totalShops: updatedCollections.length,
+        totalItems: newTotalItems,
+        validRows: updatedCollections.length,
+        totalRows: updatedCollections.length,
+        warningRows: newWarningCount,
+      };
+    });
+  }, []);
+
+  const deleteCollectionItem = React.useCallback(
+    (shopId: string, itemIndex: number) => {
+      setValidationResult((prev) => {
+        if (!prev) return prev;
+        const updatedCollections = prev.collections.map((col) => {
+          if (col.id === shopId || `${col.shopName}_${col.invoiceNo}` === shopId) {
+            const updatedItems = col.items.filter((_, idx) => idx !== itemIndex);
+            const newTotalAmount = updatedItems.reduce(
+              (sum, it) => sum + (Number(it.amount) || 0),
+              0
+            );
+            return {
+              ...col,
+              items: updatedItems,
+              totalAmount: newTotalAmount,
+            };
+          }
+          return col;
+        });
+
+        const newTotalItems = updatedCollections.reduce(
+          (sum, c) => sum + (c.items?.length || 0),
+          0
+        );
+
+        return {
+          ...prev,
+          collections: updatedCollections,
+          groupedShops: updatedCollections,
+          totalItems: newTotalItems,
+        };
+      });
+    },
+    []
+  );
+
   const clearDraft = React.useCallback(() => {
     setValidationResult(null);
     setDraftFile(null);
@@ -146,6 +242,9 @@ export function UploadDraftProvider({ children }: { children: React.ReactNode })
         isCommitted,
         setIsCommitted,
         updateShopExecutive,
+        deleteShopCollection,
+        deleteMultipleShopCollections,
+        deleteCollectionItem,
         clearDraft,
         hasDraft,
       }}

@@ -81,6 +81,9 @@ export default function AdminDashboardPage() {
     isCommitted,
     setIsCommitted,
     updateShopExecutive: handleUpdateShopExecutive,
+    deleteShopCollection: handleDeleteShopCollection,
+    deleteMultipleShopCollections: handleDeleteMultipleShopCollections,
+    deleteCollectionItem: handleDeleteCollectionItem,
     clearDraft,
   } = useUploadDraft();
 
@@ -433,7 +436,7 @@ export default function AdminDashboardPage() {
             )}
           >
             <UploadCloud className="h-3.5 w-3.5 text-primary" />
-            <span>Haier and Zoom Upload</span>
+            <span>Haier Upload</span>
             <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-muted text-muted-foreground">
             </span>
           </button>
@@ -449,7 +452,7 @@ export default function AdminDashboardPage() {
             )}
           >
             <UploadCloud className="h-3.5 w-3.5 text-emerald-500" />
-            <span>Other Brands Uploads</span>
+            <span> Zoom and Other Brands Uploads</span>
           </button>
         </div>
       </div>
@@ -526,6 +529,9 @@ export default function AdminDashboardPage() {
             collections={collectionsWithDuplicateFlags}
             executives={executives}
             onUpdateShopExecutive={handleUpdateShopExecutive}
+            onDeleteShopCollection={handleDeleteShopCollection}
+            onDeleteMultipleShopCollections={handleDeleteMultipleShopCollections}
+            onDeleteCollectionItem={handleDeleteCollectionItem}
             showWarningsOnly={showWarningsOnly}
             onToggleWarningsOnly={setShowWarningsOnly}
           />

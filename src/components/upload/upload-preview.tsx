@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ShopCollection, ParsedExcelRow } from "@/types";
+import { ShopCollection, ParsedExcelRow, CollectionItem } from "@/types";
 import { groupRowsByShop } from "@/lib/excel-parser";
 import {
   Table,
@@ -33,6 +33,7 @@ import {
   Check,
   CheckCircle2,
   CopyX,
+  Trash2,
 } from "lucide-react";
 
 interface UploadPreviewProps {
@@ -42,6 +43,9 @@ interface UploadPreviewProps {
   className?: string;
   executives?: { id: string; name: string }[];
   onUpdateShopExecutive?: (shopId: string, newExecutiveName: string | undefined) => void;
+  onDeleteShopCollection?: (shopId: string) => void;
+  onDeleteMultipleShopCollections?: (shopIds: string[]) => void;
+  onDeleteCollectionItem?: (shopId: string, itemIndex: number) => void;
   showWarningsOnly?: boolean;
   onToggleWarningsOnly?: (show: boolean) => void;
 }
@@ -53,6 +57,9 @@ export function UploadPreview({
   className,
   executives,
   onUpdateShopExecutive,
+  onDeleteShopCollection,
+  onDeleteMultipleShopCollections,
+  onDeleteCollectionItem,
   showWarningsOnly: controlledWarningsOnly,
   onToggleWarningsOnly,
 }: UploadPreviewProps) {
@@ -76,6 +83,35 @@ export function UploadPreview({
   const [selectedExecutive, setSelectedExecutive] = React.useState<string>("all");
   const [selectedCompany, setSelectedCompany] = React.useState<string>("all");
   const [isDuplicatesOnly, setIsDuplicatesOnly] = React.useState(false);
+
+  // Track selected shops for bulk actions
+  const [selectedShopIds, setSelectedShopIds] = React.useState<Set<string>>(new Set());
+
+  // Delete modal targets
+  const [singleDeleteTarget, setSingleDeleteTarget] = React.useState<ShopCollection | null>(null);
+  const [bulkDeleteTarget, setBulkDeleteTarget] = React.useState<{
+    type: "selected" | "filtered" | "all" | "duplicates";
+    count: number;
+    ids: string[];
+  } | null>(null);
+  const [itemDeleteTarget, setItemDeleteTarget] = React.useState<{
+    shop: ShopCollection;
+    index: number;
+    item: CollectionItem;
+  } | null>(null);
+
+  // Clean up selected IDs when collections change
+  React.useEffect(() => {
+    setSelectedShopIds((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(collections.map((c) => c.id));
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (validIds.has(id)) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [collections]);
 
   // Warnings filter state (controlled or local) - filters to unmapped shops needing an executive
   const [internalWarningsOnly, setInternalWarningsOnly] = React.useState(false);
@@ -330,12 +366,59 @@ export function UploadPreview({
     }
   };
 
+  const toggleSelectShop = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedShopIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const areAllVisibleSelected =
+    paginatedCollections.length > 0 &&
+    paginatedCollections.every((c) => selectedShopIds.has(c.id));
+
+  const toggleSelectAllVisible = () => {
+    if (areAllVisibleSelected) {
+      setSelectedShopIds((prev) => {
+        const next = new Set(prev);
+        for (const c of paginatedCollections) next.delete(c.id);
+        return next;
+      });
+    } else {
+      setSelectedShopIds((prev) => {
+        const next = new Set(prev);
+        for (const c of paginatedCollections) next.add(c.id);
+        return next;
+      });
+    }
+  };
+
+  const handleOpenBulkDelete = (type: "selected" | "filtered" | "all" | "duplicates") => {
+    let ids: string[] = [];
+    if (type === "selected") {
+      ids = Array.from(selectedShopIds);
+    } else if (type === "duplicates") {
+      ids = collections.filter((s) => s.isDuplicateVoucher).map((s) => s.id);
+    } else if (type === "filtered") {
+      ids = filteredCollections.map((s) => s.id);
+    } else if (type === "all") {
+      ids = collections.map((s) => s.id);
+    }
+
+    if (ids.length === 0) return;
+    setBulkDeleteTarget({ type, count: ids.length, ids });
+  };
+
   const handleResetFilters = () => {
     setSearchQuery("");
     setSelectedExecutive("all");
     setSelectedCompany("all");
     setIsDuplicatesOnly(false);
     handleToggleWarnings(false);
+    setSelectedShopIds(new Set());
     setCurrentPage(1);
   };
 
@@ -357,7 +440,8 @@ export function UploadPreview({
 
 
   return (
-    <Card className={className}>
+    <>
+      <Card className={className}>
       {/* Header */}
       <CardHeader className="py-2.5 px-4 border-b border-border flex flex-row items-center justify-between flex-wrap gap-2">
         <div>
@@ -373,6 +457,28 @@ export function UploadPreview({
         </div>
 
         <div className="flex items-center gap-2">
+          {onDeleteMultipleShopCollections && collections.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleOpenBulkDelete(isFilterActive ? "filtered" : "all")}
+              className="h-7 px-2.5 text-xs font-mono gap-1 text-destructive hover:bg-destructive/10 border-destructive/30 hover:border-destructive/60 cursor-pointer"
+              title={
+                isFilterActive
+                  ? `Delete all ${filteredCollections.length} filtered shops from preview`
+                  : `Delete all ${collections.length} shops from preview`
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              <span>
+                {isFilterActive
+                  ? `Delete Filtered (${filteredCollections.length})`
+                  : `Delete All (${collections.length})`}
+              </span>
+            </Button>
+          )}
+
           <Button
             type="button"
             variant="outline"
@@ -522,6 +628,31 @@ export function UploadPreview({
             </Button>
           )}
 
+          {/* Delete Selected Button */}
+          {selectedShopIds.size > 0 && onDeleteMultipleShopCollections && (
+            <div className="flex items-center gap-1.5 animate-in fade-in">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => handleOpenBulkDelete("selected")}
+                className="h-8 px-2.5 text-xs font-medium gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete Selected ({selectedShopIds.size})</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedShopIds(new Set())}
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
           {/* Reset Filters Button */}
           {isFilterActive && (
             <Button
@@ -547,13 +678,27 @@ export function UploadPreview({
               Showing <strong>{filteredCollections.length}</strong> duplicate {filteredCollections.length === 1 ? "voucher" : "vouchers"}. <em>Duplicates cannot be added again and will be skipped when saving.</em>
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsDuplicatesOnly(false)}
-            className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
-          >
-            Show All ({collections.length})
-          </button>
+          <div className="flex items-center gap-2">
+            {onDeleteMultipleShopCollections && filteredCollections.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenBulkDelete("duplicates")}
+                className="h-7 px-2.5 text-xs font-mono bg-rose-600 hover:bg-rose-700 text-white border-rose-600 gap-1 cursor-pointer"
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete Duplicates ({filteredCollections.length})
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsDuplicatesOnly(false)}
+              className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
+            >
+              Show All ({collections.length})
+            </button>
+          </div>
         </div>
       )}
 
@@ -566,16 +711,30 @@ export function UploadPreview({
               <strong>Duplicate Notice:</strong> {duplicateCount} {duplicateCount === 1 ? "voucher already exists" : "vouchers already exist"} and cannot be added again. They will be skipped automatically on save.
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setIsDuplicatesOnly(true);
-              handleToggleWarnings(false);
-            }}
-            className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
-          >
-            Review Duplicates ({duplicateCount})
-          </button>
+          <div className="flex items-center gap-2">
+            {onDeleteMultipleShopCollections && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenBulkDelete("duplicates")}
+                className="h-7 px-2 text-xs font-mono text-rose-600 dark:text-rose-400 border-rose-500/40 hover:bg-rose-500/20 gap-1 cursor-pointer"
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete Duplicates ({duplicateCount})
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsDuplicatesOnly(true);
+                handleToggleWarnings(false);
+              }}
+              className="text-[11px] underline font-mono hover:text-rose-950 dark:hover:text-rose-100 cursor-pointer font-semibold"
+            >
+              Review Duplicates ({duplicateCount})
+            </button>
+          </div>
         </div>
       )}
 
@@ -629,6 +788,15 @@ export function UploadPreview({
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border bg-muted/20">
+                <TableHead className="w-8 p-2 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible shops"
+                    checked={areAllVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="h-3.5 w-3.5 rounded border-input cursor-pointer accent-primary align-middle"
+                  />
+                </TableHead>
                 <TableHead className="w-8 p-2 text-center"></TableHead>
                 <TableHead className="w-10 text-center text-xs">#</TableHead>
                 <TableHead className="text-xs">Shop Name (Parent)</TableHead>
@@ -639,12 +807,15 @@ export function UploadPreview({
                 <TableHead className="text-xs text-right">Total Amount</TableHead>
                 <TableHead className="text-xs">Assigned Executive</TableHead>
                 <TableHead className="text-xs text-right">Status</TableHead>
+                {onDeleteShopCollection && (
+                  <TableHead className="w-12 text-center text-xs">Action</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredCollections.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-28 text-center text-xs text-muted-foreground">
+                  <TableCell colSpan={onDeleteShopCollection ? 12 : 11} className="h-28 text-center text-xs text-muted-foreground">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <SlidersHorizontal className="h-5 w-5 text-muted-foreground/60" />
                       <span>No collections match the current filter or search criteria.</span>
@@ -678,9 +849,19 @@ export function UploadPreview({
                           isExpanded && "bg-muted/25",
                           hasWarning && "bg-amber-500/[0.04]",
                           isResolvedWarning && "bg-emerald-500/[0.06] border-l-2 border-l-emerald-500",
-                          shop.isDuplicateVoucher && "bg-rose-500/[0.04] opacity-85"
+                          shop.isDuplicateVoucher && "bg-rose-500/[0.04] opacity-85",
+                          selectedShopIds.has(shop.id) && "bg-primary/5"
                         )}
                       >
+                        <TableCell className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${shop.shopName}`}
+                            checked={selectedShopIds.has(shop.id)}
+                            onChange={(e) => toggleSelectShop(shop.id, e as any)}
+                            className="h-3.5 w-3.5 rounded border-input cursor-pointer accent-primary align-middle"
+                          />
+                        </TableCell>
                         <TableCell className="p-2 text-center text-muted-foreground">
                           {isExpanded ? (
                             <ChevronDown className="h-4 w-4 text-foreground transition-transform" />
@@ -835,12 +1016,24 @@ export function UploadPreview({
                             {shop.isDuplicateVoucher ? "Duplicate" : shop.isExistingShop ? "Registered" : "New Shop"}
                           </Badge>
                         </TableCell>
+                        {onDeleteShopCollection && (
+                          <TableCell className="text-center p-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => setSingleDeleteTarget(shop)}
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
+                              title={`Delete "${shop.shopName}" (${shop.invoiceNo}) from preview`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </TableCell>
+                        )}
                       </TableRow>
 
                       {/* Item Rows (Children) */}
                       {isExpanded && (
                         <TableRow className="border-b border-border/80 bg-muted/10 hover:bg-muted/10">
-                          <TableCell colSpan={10} className="p-0">
+                          <TableCell colSpan={onDeleteShopCollection ? 12 : 11} className="p-0">
                             <div className="py-2.5 pl-10 pr-4 bg-muted/10">
                               <div className="rounded border border-border bg-background overflow-hidden">
                                 <div className="px-3 py-1.5 bg-muted/30 border-b border-border flex items-center justify-between text-[11px] font-mono text-muted-foreground">
@@ -856,12 +1049,15 @@ export function UploadPreview({
                                       <TableHead className="text-[11px]">Product / Item Name</TableHead>
                                       <TableHead className="text-[11px] text-right">Quantity</TableHead>
                                       <TableHead className="text-[11px] text-right">Amount</TableHead>
+                                      {onDeleteCollectionItem && (
+                                        <TableHead className="w-10 text-center text-[11px]">Action</TableHead>
+                                      )}
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
                                     {shop.items.length === 0 ? (
                                       <TableRow>
-                                        <TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-2">
+                                        <TableCell colSpan={onDeleteCollectionItem ? 5 : 4} className="text-center text-xs text-muted-foreground py-2">
                                           No itemized products found for this shop invoice.
                                         </TableCell>
                                       </TableRow>
@@ -880,6 +1076,18 @@ export function UploadPreview({
                                           <TableCell className="text-right font-mono text-xs font-semibold text-foreground py-1.5">
                                             {formatCurrency(item.amount)}
                                           </TableCell>
+                                          {onDeleteCollectionItem && (
+                                            <TableCell className="text-center py-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => setItemDeleteTarget({ shop, index: idx, item })}
+                                                className="p-1 text-muted-foreground hover:text-destructive transition-colors cursor-pointer rounded hover:bg-destructive/10"
+                                                title={`Delete "${item.productName}" from this invoice`}
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </button>
+                                            </TableCell>
+                                          )}
                                         </TableRow>
                                       ))
                                     )}
@@ -914,5 +1122,208 @@ export function UploadPreview({
         )}
       </CardContent>
     </Card>
+
+    {/* Single Shop Delete Confirmation Modal */}
+    {singleDeleteTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+        <Card className="w-full max-w-md border-border bg-card p-5 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-full bg-destructive/15 text-destructive shrink-0">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-bold text-foreground">
+                Remove from Sales Preview
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                This shop invoice will be excluded from this upload batch.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-xs bg-muted/40 border border-border p-3 rounded-lg text-foreground">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Shop:</span>
+              <span className="font-semibold text-foreground">{singleDeleteTarget.shopName}</span>
+            </div>
+            <div className="flex justify-between font-mono">
+              <span className="text-muted-foreground font-sans">Invoice No:</span>
+              <span className="font-semibold">{singleDeleteTarget.invoiceNo}</span>
+            </div>
+            <div className="flex justify-between font-mono">
+              <span className="text-muted-foreground font-sans">Date:</span>
+              <span>{singleDeleteTarget.invoiceDate}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Items:</span>
+              <span>{singleDeleteTarget.items.length} {singleDeleteTarget.items.length === 1 ? "product" : "products"}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-border font-bold">
+              <span>Total Amount:</span>
+              <span className="text-primary">{formatCurrency(singleDeleteTarget.totalAmount)}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSingleDeleteTarget(null)}
+              className="h-8 text-xs font-mono cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                onDeleteShopCollection?.(singleDeleteTarget.id);
+                setSingleDeleteTarget(null);
+              }}
+              className="h-8 text-xs font-medium gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Remove Invoice</span>
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )}
+
+    {/* Bulk / Filtered Delete Confirmation Modal */}
+    {bulkDeleteTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+        <Card className="w-full max-w-md border-border bg-card p-5 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-full bg-destructive/15 text-destructive shrink-0">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-bold text-foreground">
+                {bulkDeleteTarget.type === "selected"
+                  ? `Remove Selected Invoices (${bulkDeleteTarget.ids.length})`
+                  : bulkDeleteTarget.type === "duplicates"
+                  ? `Remove All Duplicates (${bulkDeleteTarget.ids.length})`
+                  : isFilterActive
+                  ? `Remove Filtered Invoices (${bulkDeleteTarget.ids.length})`
+                  : `Remove All Invoices (${bulkDeleteTarget.ids.length})`}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Exclude from preview before saving to database.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-xs bg-destructive/5 border border-destructive/20 p-3 rounded-lg text-foreground">
+            <p className="font-semibold text-destructive">
+              Are you sure you want to remove {bulkDeleteTarget.ids.length} {bulkDeleteTarget.ids.length === 1 ? "invoice" : "invoices"} from the preview?
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              These records will not be added to your shop collections.
+            </p>
+
+            {bulkDeleteTarget.type === "filtered" && isFilterActive && (
+              <div className="mt-2 pt-2 border-t border-destructive/15 space-y-1 text-[11px]">
+                <span className="font-semibold text-foreground">Filtered Scope:</span>
+                <ul className="list-disc pl-4 text-muted-foreground space-y-0.5 font-mono">
+                  {searchQuery.trim() && <li>Search: &quot;{searchQuery.trim()}&quot;</li>}
+                  {selectedExecutive !== "all" && <li>Executive: {selectedExecutive}</li>}
+                  {selectedCompany !== "all" && <li>Brand: {selectedCompany}</li>}
+                  {isDuplicatesOnly && <li>Filter: Duplicates only</li>}
+                  {isWarningsOnly && <li>Filter: Warnings review</li>}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkDeleteTarget(null)}
+              className="h-8 text-xs font-mono cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                onDeleteMultipleShopCollections?.(bulkDeleteTarget.ids);
+                setSelectedShopIds((prev) => {
+                  const next = new Set(prev);
+                  for (const id of bulkDeleteTarget.ids) next.delete(id);
+                  return next;
+                });
+                setBulkDeleteTarget(null);
+              }}
+              className="h-8 text-xs font-medium gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Remove {bulkDeleteTarget.ids.length} {bulkDeleteTarget.ids.length === 1 ? "Invoice" : "Invoices"}</span>
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )}
+
+    {/* Product Item Delete Confirmation Modal */}
+    {itemDeleteTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+        <Card className="w-full max-w-sm border-border bg-card p-4 shadow-2xl space-y-3 animate-in zoom-in-95 duration-150">
+          <div className="flex items-start gap-2.5">
+            <div className="p-2 rounded-full bg-destructive/15 text-destructive shrink-0">
+              <Trash2 className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-xs font-bold text-foreground">
+                Remove Product Item
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Remove item from {itemDeleteTarget.shop.shopName}&apos;s invoice.
+              </p>
+            </div>
+          </div>
+
+          <div className="text-xs bg-muted/40 border border-border p-2.5 rounded text-foreground space-y-1">
+            <div className="font-medium">{itemDeleteTarget.item.productName}</div>
+            <div className="flex justify-between text-[11px] text-muted-foreground font-mono">
+              <span>Qty: {itemDeleteTarget.item.quantity}</span>
+              <span className="font-semibold text-foreground">{formatCurrency(itemDeleteTarget.item.amount)}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setItemDeleteTarget(null)}
+              className="h-7 text-xs font-mono cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                onDeleteCollectionItem?.(itemDeleteTarget.shop.id, itemDeleteTarget.index);
+                setItemDeleteTarget(null);
+              }}
+              className="h-7 text-xs font-medium gap-1 shadow-xs cursor-pointer"
+            >
+              <Trash2 className="h-3 w-3" />
+              <span>Remove Item</span>
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )}
+  </>
   );
 }

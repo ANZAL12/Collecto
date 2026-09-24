@@ -82,6 +82,19 @@ export function MappingForm({
 
   const targetCompany = companies.find((c) => c.id === selectedCompanyId);
 
+  // Deduplicate shops by physical shop ID so each shop only appears once in the dropdown
+  const distinctShops = React.useMemo(() => {
+    const seen = new Set<string>();
+    const list: typeof shops = [];
+    for (const s of shops) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        list.push(s);
+      }
+    }
+    return list;
+  }, [shops]);
+
   const existingMatches = React.useMemo(() => {
     if (!currentShopName) return [];
     const norm = currentShopName.toLowerCase();
@@ -103,6 +116,15 @@ export function MappingForm({
       );
     });
   }, [existingMatches, selectedCompanyId, targetCompany]);
+
+  // Synchronize assigned executive whenever the selected company / brand changes
+  React.useEffect(() => {
+    if (matchUnderSelectedCompany?.assignedExecutiveName) {
+      setSelectedExecutiveName(matchUnderSelectedCompany.assignedExecutiveName);
+    } else if (selectedCompanyId && !matchUnderSelectedCompany) {
+      setSelectedExecutiveName("");
+    }
+  }, [matchUnderSelectedCompany, selectedCompanyId]);
 
   const matchesUnderOtherCompanies = React.useMemo(() => {
     if (!existingMatches.length) return [];
@@ -169,6 +191,7 @@ export function MappingForm({
           executiveName: selectedExecutiveName,
           companyId: targetCompany?.id,
           companyName: targetCompany?.name,
+          mappingId: matchUnderSelectedCompany?.mappingId,
         });
       }
 
@@ -272,7 +295,7 @@ export function MappingForm({
                   Select Registered Shop <span className="text-destructive">*</span>
                 </Label>
                 <span className="text-[11px] text-muted-foreground font-mono">
-                  {shops.length} {shops.length === 1 ? "shop" : "shops"}
+                  {distinctShops.length} {distinctShops.length === 1 ? "shop" : "shops"}
                 </span>
               </div>
               <select
@@ -291,12 +314,12 @@ export function MappingForm({
                 className="h-8 w-full rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900"
                 required
               >
-                {shops.length === 0 ? (
+                {distinctShops.length === 0 ? (
                   <option value="">No shops available</option>
                 ) : (
-                  shops.map((s) => (
+                  distinctShops.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} {s.assignedExecutiveName ? `(${s.assignedExecutiveName})` : "(Unassigned)"}
+                      {s.name}
                     </option>
                   ))
                 )}

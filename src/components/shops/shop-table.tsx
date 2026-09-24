@@ -31,7 +31,14 @@ import {
 
 interface ShopTableProps {
   shops: Shop[];
-  onUpdateExecutive?: (shopId: string, shopName: string, executiveName: string) => void;
+  onUpdateExecutive?: (
+    shopId: string,
+    shopName: string,
+    executiveName: string,
+    companyId?: string,
+    companyName?: string,
+    mappingId?: string
+  ) => void;
   onDeleteShop?: (shop: Shop) => void;
   onDeleteFilteredShops?: (shopsToDelete: Shop[]) => Promise<void> | void;
   deletingShopId?: string | null;
@@ -434,7 +441,14 @@ export function ShopTable({
                           <select
                             value={shop.assignedExecutiveName || ""}
                             onChange={(e) =>
-                              onUpdateExecutive(shop.id, shop.name, e.target.value)
+                              onUpdateExecutive(
+                                shop.id,
+                                shop.name,
+                                e.target.value,
+                                shop.companyId || shop.brandId,
+                                shop.companyName || shop.brandName,
+                                shop.mappingId
+                              )
                             }
                             className="h-7 rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none dark:bg-zinc-900 min-w-[170px]"
                           >

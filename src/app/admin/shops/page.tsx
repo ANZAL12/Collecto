@@ -59,13 +59,24 @@ export default function AdminShopsPage() {
   const handleUpdateExecutive = async (
     shopId: string,
     shopName: string,
-    executiveName: string
+    executiveName: string,
+    companyId?: string,
+    companyName?: string,
+    mappingId?: string
   ) => {
-    await updateExecutiveMutation.mutateAsync({ shopId, shopName, executiveName });
+    await updateExecutiveMutation.mutateAsync({
+      shopId,
+      shopName,
+      executiveName,
+      companyId,
+      companyName,
+      mappingId,
+    });
+    const brandLabel = companyName ? ` [${companyName}]` : "";
     showNotice(
       executiveName
-        ? `Assigned "${shopName}" to ${executiveName}`
-        : `Unassigned "${shopName}"`
+        ? `Assigned "${shopName}"${brandLabel} to ${executiveName}`
+        : `Unassigned "${shopName}"${brandLabel}`
     );
   };
 

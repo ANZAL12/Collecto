@@ -210,13 +210,15 @@ export function useUpdateShopExecutiveMutation() {
       executiveName,
       companyId,
       companyName,
+      mappingId,
     }: {
       shopId: string;
       shopName: string;
       executiveName: string;
       companyId?: string;
       companyName?: string;
-    }) => updateShopExecutive(shopId, shopName, executiveName, companyId, companyName),
+      mappingId?: string;
+    }) => updateShopExecutive(shopId, shopName, executiveName, companyId, companyName, mappingId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shops });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.shopMappings });

@@ -283,18 +283,30 @@ export async function saveParsedCollectionsToDb(
         shopId = existingShop.id;
 
         // C. ALREADY REGISTERED SHOP:
-        // Check if this shop already has an executive mapping in `shop_mappings`
-        let mapQuery = supabase
+        // Check if this shop already has an executive mapping in `shop_mappings` matching company/brand
+        const { data: mappingRows } = await supabase
           .from("shop_mappings")
-          .select("id, executive_id, company_id, brand_id, executives:executive_id (name)")
+          .select("id, executive_id, company_id, brand_id, company_name, brand_name, executives:executive_id (name)")
           .eq("shop_id", shopId);
 
-        if (effectiveCompId) {
-          mapQuery = mapQuery.or(`company_id.eq.${effectiveCompId},brand_id.eq.${effectiveCompId}`);
+        let mappingData: any = null;
+        if (mappingRows && mappingRows.length > 0) {
+          if (effectiveCompId) {
+            mappingData = mappingRows.find(
+              (m) => m.company_id === effectiveCompId || m.brand_id === effectiveCompId
+            );
+          }
+          if (!mappingData && effectiveCompName) {
+            mappingData = mappingRows.find(
+              (m) =>
+                m.company_name?.trim().toLowerCase() === effectiveCompName.trim().toLowerCase() ||
+                m.brand_name?.trim().toLowerCase() === effectiveCompName.trim().toLowerCase()
+            );
+          }
+          if (!mappingData && !effectiveCompId && !effectiveCompName) {
+            mappingData = mappingRows[0];
+          }
         }
-
-        const { data: mappingRows } = await mapQuery;
-        const mappingData = mappingRows && mappingRows.length > 0 ? mappingRows[0] : null;
 
         const mappedExec = (mappingData?.executives as any)?.name;
         if (mappedExec) {
@@ -653,9 +665,29 @@ export async function getShops(): Promise<Shop[]> {
     return [];
   }
 
+  // Fetch company tags from shop_collections to automatically link brands to shops
+  const { data: shopCols } = await supabase
+    .from("shop_collections")
+    .select("shop_name, company_id, company_name, brand_id, brand_name");
+
+  const shopCompanyMap: Record<string, { id?: string; name?: string }> = {};
+  if (shopCols) {
+    for (const sc of shopCols) {
+      const key = (sc.shop_name || "").trim().toLowerCase();
+      if ((sc.company_name || sc.brand_name) && !shopCompanyMap[key]) {
+        shopCompanyMap[key] = {
+          id: sc.company_id || sc.brand_id,
+          name: sc.company_name || sc.brand_name,
+        };
+      }
+    }
+  }
+
   const result: Shop[] = [];
   for (const s of data) {
     if (isCancelledOrInvalidShop(s.name)) continue;
+
+    const compFromCol = shopCompanyMap[s.name.trim().toLowerCase()];
 
     const mappings = Array.isArray(s.shop_mappings)
       ? s.shop_mappings
@@ -664,30 +696,56 @@ export async function getShops(): Promise<Shop[]> {
       : [];
 
     if (mappings.length === 0) {
+      const compId = s.company_id || s.brand_id || compFromCol?.id;
+      const compName = s.company_name || s.brand_name || compFromCol?.name;
       result.push({
         id: s.id,
         name: s.name,
-        companyId: s.company_id || s.brand_id || undefined,
-        companyName: s.company_name || s.brand_name || undefined,
-        brandId: s.brand_id || s.company_id || undefined,
-        brandName: s.brand_name || s.company_name || undefined,
+        companyId: compId || undefined,
+        companyName: compName || undefined,
+        brandId: compId || undefined,
+        brandName: compName || undefined,
       });
     } else {
+      const compFromCol = shopCompanyMap[s.name.trim().toLowerCase()];
+      const seenCompanies = new Map<string, { m: any; execName?: string; compId?: string; compName?: string }>();
+      const duplicateIdsToDelete: string[] = [];
+
       for (const m of mappings) {
         const execName = Array.isArray(m.executives)
           ? m.executives[0]?.name
           : (m.executives as any)?.name;
-        const compId = m.company_id || m.brand_id || s.company_id || s.brand_id;
-        const compName = m.company_name || m.brand_name || s.company_name || s.brand_name;
+        const compId = m.company_id || m.brand_id || s.company_id || s.brand_id || compFromCol?.id;
+        const compName = m.company_name || m.brand_name || s.company_name || s.brand_name || compFromCol?.name;
+        const normKey = (compName || compId || "general").trim().toLowerCase();
+
+        if (!seenCompanies.has(normKey)) {
+          seenCompanies.set(normKey, { m, execName, compId, compName });
+        } else {
+          const existing = seenCompanies.get(normKey)!;
+          if (!existing.execName && execName) {
+            if (existing.m?.id) duplicateIdsToDelete.push(existing.m.id);
+            seenCompanies.set(normKey, { m, execName, compId, compName });
+          } else {
+            if (m?.id) duplicateIdsToDelete.push(m.id);
+          }
+        }
+      }
+
+      if (duplicateIdsToDelete.length > 0) {
+        supabase.from("shop_mappings").delete().in("id", duplicateIdsToDelete).then(() => {});
+      }
+
+      for (const [_, item] of seenCompanies) {
         result.push({
           id: s.id,
-          mappingId: m.id,
+          mappingId: item.m.id,
           name: s.name,
-          assignedExecutiveName: execName || undefined,
-          companyId: compId || undefined,
-          companyName: compName || undefined,
-          brandId: compId || undefined,
-          brandName: compName || undefined,
+          assignedExecutiveName: item.execName || undefined,
+          companyId: item.compId || undefined,
+          companyName: item.compName || undefined,
+          brandId: item.compId || undefined,
+          brandName: item.compName || undefined,
         });
       }
     }
@@ -770,11 +828,14 @@ export async function getShopMappings(): Promise<ShopMapping[]> {
         status: "unmapped",
       });
     } else {
+      const compFromCol = shopCompanyMap[shop.name.trim().toLowerCase()];
+      const seenCompanies = new Map<string, { mapping: any; execName?: string; companyId?: string; companyName?: string }>();
+      const duplicateIdsToDelete: string[] = [];
+
       for (const mapping of mappings) {
         const execName = Array.isArray(mapping?.executives)
           ? mapping.executives[0]?.name
           : (mapping?.executives as any)?.name;
-        const compFromCol = shopCompanyMap[shop.name.trim().toLowerCase()];
         const companyId =
           mapping?.company_id ||
           mapping?.brand_id ||
@@ -788,17 +849,37 @@ export async function getShopMappings(): Promise<ShopMapping[]> {
           shop.brand_name ||
           compFromCol?.name;
 
+        const normKey = (companyName || companyId || "general").trim().toLowerCase();
+
+        if (!seenCompanies.has(normKey)) {
+          seenCompanies.set(normKey, { mapping, execName, companyId, companyName });
+        } else {
+          const existing = seenCompanies.get(normKey)!;
+          if (!existing.execName && execName) {
+            if (existing.mapping?.id) duplicateIdsToDelete.push(existing.mapping.id);
+            seenCompanies.set(normKey, { mapping, execName, companyId, companyName });
+          } else {
+            if (mapping?.id) duplicateIdsToDelete.push(mapping.id);
+          }
+        }
+      }
+
+      if (duplicateIdsToDelete.length > 0) {
+        supabase.from("shop_mappings").delete().in("id", duplicateIdsToDelete).then(() => {});
+      }
+
+      for (const [_, item] of seenCompanies) {
         results.push({
-          id: mapping.id || `map-${shop.id}-${companyId || "default"}`,
+          id: item.mapping.id || `map-${shop.id}-${item.companyId || "default"}`,
           shopId: shop.id,
           shopName: shop.name,
-          executiveId: mapping?.executive_id || undefined,
-          executiveName: execName || undefined,
-          companyId: companyId || undefined,
-          companyName: companyName || undefined,
-          brandId: companyId || undefined,
-          brandName: companyName || undefined,
-          status: execName ? ("mapped" as const) : ("unmapped" as const),
+          executiveId: item.mapping?.executive_id || undefined,
+          executiveName: item.execName || undefined,
+          companyId: item.companyId || undefined,
+          companyName: item.companyName || undefined,
+          brandId: item.companyId || undefined,
+          brandName: item.companyName || undefined,
+          status: item.execName ? ("mapped" as const) : ("unmapped" as const),
         });
       }
     }
@@ -1187,7 +1268,8 @@ export async function updateShopExecutive(
   shopName: string,
   executiveName: string,
   companyId?: string,
-  companyName?: string
+  companyName?: string,
+  mappingId?: string
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) {
     return false;
@@ -1199,50 +1281,131 @@ export async function updateShopExecutive(
   const cleanExec = executiveName.trim();
   const cleanShopName = shopName.trim();
 
-  // Find existing mapping for this shop (and company if specified)
-  let mapQuery = supabase
-    .from("shop_mappings")
-    .select("id, company_id, brand_id")
-    .eq("shop_id", shopId);
+  // 1. Locate specific mapping target
+  let targetMapping: any = null;
 
-  if (companyId) {
-    mapQuery = mapQuery.or(`company_id.eq.${companyId},brand_id.eq.${companyId}`);
+  if (mappingId) {
+    const { data: mapById } = await supabase
+      .from("shop_mappings")
+      .select("id, shop_id, executive_id, company_id, company_name, brand_id, brand_name")
+      .eq("id", mappingId)
+      .maybeSingle();
+    if (mapById) {
+      targetMapping = mapById;
+    }
   }
 
-  const { data: existingMaps } = await mapQuery;
-  const existingId = existingMaps && existingMaps.length > 0 ? existingMaps[0].id : null;
+  // If not matched by mappingId, search all mappings for this shop
+  if (!targetMapping) {
+    const { data: existingMaps } = await supabase
+      .from("shop_mappings")
+      .select("id, shop_id, executive_id, company_id, company_name, brand_id, brand_name")
+      .eq("shop_id", shopId);
 
-  // If unassigned
+    if (existingMaps && existingMaps.length > 0) {
+      if (companyId) {
+        targetMapping = existingMaps.find(
+          (m) => m.company_id === companyId || m.brand_id === companyId
+        );
+      }
+      if (!targetMapping && companyName) {
+        targetMapping = existingMaps.find(
+          (m) =>
+            m.company_name?.trim().toLowerCase() === companyName.trim().toLowerCase() ||
+            m.brand_name?.trim().toLowerCase() === companyName.trim().toLowerCase()
+        );
+      }
+      // If still not matched, and exactly one mapping exists for this shop, use it
+      if (!targetMapping && existingMaps.length === 1) {
+        targetMapping = existingMaps[0];
+      }
+    }
+  }
+
+  // 2. Resolve effective company and brand information to PREVENT wiping or altering brand
+  let finalCompanyId =
+    companyId ||
+    targetMapping?.company_id ||
+    targetMapping?.brand_id ||
+    null;
+
+  let finalCompanyName =
+    companyName ||
+    targetMapping?.company_name ||
+    targetMapping?.brand_name ||
+    null;
+
+  // Fallback to physical shop record if brand is still missing
+  if (!finalCompanyId && !finalCompanyName) {
+    const { data: sRecord } = await supabase
+      .from("shops")
+      .select("company_id, company_name, brand_id, brand_name")
+      .eq("id", shopId)
+      .maybeSingle();
+
+    if (sRecord) {
+      finalCompanyId = sRecord.company_id || sRecord.brand_id || null;
+      finalCompanyName = sRecord.company_name || sRecord.brand_name || null;
+    }
+  }
+
+  // Fallback to collections table if brand is still missing (healing previously wiped records)
+  if (!finalCompanyId && !finalCompanyName) {
+    const { data: colRec } = await supabase
+      .from("shop_collections")
+      .select("company_id, company_name, brand_id, brand_name")
+      .ilike("shop_name", cleanShopName)
+      .not("company_name", "is", null)
+      .limit(1)
+      .maybeSingle();
+
+    if (colRec) {
+      finalCompanyId = colRec.company_id || colRec.brand_id || null;
+      finalCompanyName = colRec.company_name || colRec.brand_name || null;
+    }
+  }
+
+  // 3. Handle unassignment
   if (!cleanExec || cleanExec === "-- Unassigned --") {
-    const unassignPayload: any = { shop_id: shopId, executive_id: null };
-    if (companyId || companyName) {
-      unassignPayload.company_id = companyId || null;
-      unassignPayload.company_name = companyName || null;
-      unassignPayload.brand_id = companyId || null;
-      unassignPayload.brand_name = companyName || null;
-    }
-
-    if (existingId) {
-      await supabase.from("shop_mappings").update(unassignPayload).eq("id", existingId);
+    if (targetMapping?.id) {
+      await supabase
+        .from("shop_mappings")
+        .update({
+          executive_id: null,
+          company_id: finalCompanyId,
+          company_name: finalCompanyName,
+          brand_id: finalCompanyId,
+          brand_name: finalCompanyName,
+        })
+        .eq("id", targetMapping.id);
     } else {
-      await supabase.from("shop_mappings").insert(unassignPayload);
+      await supabase.from("shop_mappings").insert({
+        shop_id: shopId,
+        executive_id: null,
+        company_id: finalCompanyId,
+        company_name: finalCompanyName,
+        brand_id: finalCompanyId,
+        brand_name: finalCompanyName,
+      });
     }
 
-    // Unassign collections for this shop
+    // Unassign collections ONLY for this shop and brand!
     let unColQuery = supabase
       .from("shop_collections")
       .update({ executive_name: null })
       .ilike("shop_name", cleanShopName);
 
-    if (companyId) {
-      unColQuery = unColQuery.or(`company_id.eq.${companyId},brand_id.eq.${companyId}`);
+    if (finalCompanyId) {
+      unColQuery = unColQuery.or(`company_id.eq.${finalCompanyId},brand_id.eq.${finalCompanyId}`);
+    } else if (finalCompanyName) {
+      unColQuery = unColQuery.or(`company_name.ilike.${finalCompanyName},brand_name.ilike.${finalCompanyName}`);
     }
     await unColQuery;
 
     return true;
   }
 
-  // Resolve executive (case-insensitive + fallback)
+  // 4. Resolve executive (case-insensitive + fallback)
   let { data: execData } = await supabase
     .from("executives")
     .select("id, name")
@@ -1261,46 +1424,60 @@ export async function updateShopExecutive(
 
   if (!execData) return false;
 
+  // 5. Update or insert mapping record preserving brand
   const mapPayload: any = {
     shop_id: shopId,
     executive_id: execData.id,
-    company_id: companyId || null,
-    company_name: companyName || null,
-    brand_id: companyId || null,
-    brand_name: companyName || null,
+    company_id: finalCompanyId,
+    company_name: finalCompanyName,
+    brand_id: finalCompanyId,
+    brand_name: finalCompanyName,
   };
 
-  if (existingId) {
-    await supabase.from("shop_mappings").update(mapPayload).eq("id", existingId);
+  if (targetMapping?.id) {
+    await supabase.from("shop_mappings").update(mapPayload).eq("id", targetMapping.id);
   } else {
-    await supabase.from("shop_mappings").insert(mapPayload);
+    const { error: insErr } = await supabase.from("shop_mappings").insert(mapPayload);
+    if (insErr) {
+      await supabase.from("shop_mappings").upsert(mapPayload, { onConflict: "shop_id" });
+    }
   }
 
-  // Also update company on shop if provided
-  if (companyId || companyName) {
+  // 6. Only set company on physical shop if it was previously unset (never overwrite existing)
+  if (finalCompanyName || finalCompanyId) {
     try {
-      await supabase
+      const { data: sRecord } = await supabase
         .from("shops")
-        .update({
-          company_id: companyId || null,
-          company_name: companyName || null,
-          brand_id: companyId || null,
-          brand_name: companyName || null,
-        })
-        .eq("id", shopId);
+        .select("company_name, brand_name")
+        .eq("id", shopId)
+        .maybeSingle();
+
+      if (sRecord && !sRecord.company_name && !sRecord.brand_name) {
+        await supabase
+          .from("shops")
+          .update({
+            company_id: finalCompanyId,
+            company_name: finalCompanyName,
+            brand_id: finalCompanyId,
+            brand_name: finalCompanyName,
+          })
+          .eq("id", shopId);
+      }
     } catch {
       // Ignore if columns don't exist yet on remote table
     }
   }
 
-  // Automatically route collections for this shop to this executive!
+  // 7. Route collections for this shop and brand specifically to this executive!
   let colRouteQuery = supabase
     .from("shop_collections")
     .update({ executive_name: cleanExec })
     .ilike("shop_name", cleanShopName);
 
-  if (companyId) {
-    colRouteQuery = colRouteQuery.or(`company_id.eq.${companyId},brand_id.eq.${companyId}`);
+  if (finalCompanyId) {
+    colRouteQuery = colRouteQuery.or(`company_id.eq.${finalCompanyId},brand_id.eq.${finalCompanyId}`);
+  } else if (finalCompanyName) {
+    colRouteQuery = colRouteQuery.or(`company_name.ilike.${finalCompanyName},brand_name.ilike.${finalCompanyName}`);
   }
   await colRouteQuery;
 
